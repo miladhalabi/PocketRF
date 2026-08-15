@@ -37,6 +37,7 @@ void BLEServerManager::begin(BLEDataCallback rxCallback) {
 
     // Start BLE Advertising
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->setName(BLE_DEVICE_NAME);
     pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
     pAdvertising->start();

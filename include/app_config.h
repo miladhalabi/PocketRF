@@ -6,15 +6,15 @@
 // ---------------------------------------------------------------------------
 // Hardware Pin Mapping (Seeed Studio XIAO ESP32C3)
 // ---------------------------------------------------------------------------
-// SCK  : D6 (GPIO 8)
-// MISO : D7 (GPIO 9)
-// MOSI : D8 (GPIO 10)
-// CS   : D5 (GPIO 7)
-// GDO0 : D1 (GPIO 3) - RMT Microsecond Rx/Tx Data Pin
+// SCK  : D10 (GPIO 10)
+// MISO : D2  (GPIO 4)  - Safe non-strapping pin (Fixes GPIO9 boot mode trap)
+// MOSI : D3  (GPIO 5)
+// CS   : D5  (GPIO 7)
+// GDO0 : D1  (GPIO 3)  - RMT Microsecond Rx/Tx Data Pin
 // ---------------------------------------------------------------------------
-#define CC1101_SCK_PIN 8
-#define CC1101_MISO_PIN 9
-#define CC1101_MOSI_PIN 10
+#define CC1101_SCK_PIN 10
+#define CC1101_MISO_PIN 4
+#define CC1101_MOSI_PIN 5
 #define CC1101_CS_PIN 7
 #define CC1101_GDO0_PIN 3
 

@@ -12,9 +12,9 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
 
 | Seeed XIAO ESP32C3 Pin | GPIO | CC1101 Pin | Function |
 | :--- | :--- | :--- | :--- |
-| **D6** | GPIO 8 | SCK | SPI Clock |
-| **D7** | GPIO 9 | MISO | SPI Master In / Slave Out |
-| **D8** | GPIO 10 | MOSI | SPI Master Out / Slave In |
+| **D10** | GPIO 10 | SCK | SPI Clock |
+| **D2** | GPIO 4 | MISO | SPI Master In / Slave Out (Safe pin) |
+| **D3** | GPIO 5 | MOSI | SPI Master Out / Slave In |
 | **D5** | GPIO 7 | CSN | SPI Chip Select |
 | **D1** | GPIO 3 | GDO0 | Microsecond Rx/Tx Data Stream (RMT) |
 | **3.3V / GND** | 3.3V / GND | VCC / GND | Power Supply |

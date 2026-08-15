@@ -20,9 +20,9 @@ Extract the complete Sub-GHz RF capability (OOK Protocol Decoding/Encoding, KeeL
 
 | Seeed XIAO ESP32C3 Pin | GPIO | CC1101 Transceiver Pin | Function |
 | :--- | :--- | :--- | :--- |
-| **D6** | GPIO 8 | SCK | SPI Clock |
-| **D7** | GPIO 9 | MISO | SPI Master In / Slave Out |
-| **D8** | GPIO 10 | MOSI | SPI Master Out / Slave In |
+| **D10** | GPIO 10 | SCK | SPI Clock |
+| **D2** | GPIO 4 | MISO | SPI Master In / Slave Out (Safe non-strapping pin) |
+| **D3** | GPIO 5 | MOSI | SPI Master Out / Slave In |
 | **D5** | GPIO 7 | CSN | SPI Chip Select |
 | **D1** | GPIO 3 | GDO0 | Microsecond Rx/Tx Data Stream (RMT) |
 | **3.3V / GND** | 3.3V / GND | VCC / GND | Power Supply |
@@ -55,19 +55,33 @@ Extract the complete Sub-GHz RF capability (OOK Protocol Decoding/Encoding, KeeL
   * Added explicit `m_pServer->start()` GATT database registration.
   * Added `Serial.flush()` for USB CDC logging.
   * **Verified 100% working:** Tested via Linux Python `bleak` script and two-way BLE notifications.
+- [x] **Feature 4: CC1101 Driver & Precise Frequency Calibration Extraction**
+  * Created `include/rf_structs.h`, `include/cc1101_driver.h`, and `src/cc1101_driver.cpp`.
+  * Implemented `CC1101Driver` class wrapping hardware SPI initialization on Seeed XIAO ESP32C3 pins (SCK: GPIO 10, MISO: GPIO 4, MOSI: GPIO 5, CS: GPIO 7, GDO0: GPIO 3).
+  * Resolved ESP32-C3 single FSPI host initialization (`SPI.begin()` + `setSPIinstance(&SPI)`) fixing `spiStartBus(): SPI bus index 1 is out of range`.
+  * Extracted `applyPreciseCalibration` (`FSCTRL0`, `FSCAL2`, `TEST0`, `FREND0/1`) across 315MHz, 433MHz, 868MHz, and 915MHz bands.
+  * Added ASK/OOK preset configuration (`applyFixedFreqOokPreset`).
+  * Integrated BLE commands (`STATUS`/`INIT`, `FREQ <mhz>`, `MODE <RX|TX|IDLE>`) returning JSON status payloads over BLE notifications.
+- [x] **Feature 5: ESP32 RMT Microsecond Timing Core (`rf_signal_engine`)**
+  * Created `include/rf_signal_engine.h` and `src/rf_signal_engine.cpp` leveraging native ESP-IDF 5.x RMT drivers (`driver/rmt_rx.h`, `driver/rmt_tx.h`).
+  * Configured 1 MHz tick resolution ($1\,\mu\text{s}$) on GPIO 3 (GDO0 pin).
+  * Implemented `durationsToRmtSymbols()` and `rmtSymbolsToDurations()` signed pulse converters.
+  * Built non-blocking background RMT RX session (`startRx()`, `stopRx()`, `pollRxDurations()`) with FreeRTOS queue integration.
+  * Built RMT TX pulse train transmitter (`transmitDurations()`).
+  * Created `test_ble.py` automated test runner using Python `bleak`.
+- [x] **Feature 6: Protocol Registry & KeeLoq Engine Integration**
+  * Built `include/rf_protocol.h`, `include/rf_registry.h`, and `src/rf_registry.cpp` containing static OOK protocol definitions (Princeton, CAME, Nice, Holtek, Linear, Clemsa, Mastercode, GateTX, Ansonic, PhoenixV2, RcSwitch 1..12).
+  * Built `include/rf_encoder.h` and `src/rf_encoder.cpp` (`rf_tx_protocol`, `rf_tx_keeloq`, `rf_tx_raw_bits`).
+  * Built `include/rf_decoder.h` and `src/rf_decoder.cpp` (`rf_decode_ook`, `rf_decode_keeloq`, `rf_build_raw`).
+  * Built `include/rf_keeloq.h` and `src/rf_keeloq.cpp` with 32-bit block cipher, KeeLoq learning schemes (Simple, Normal, Secure, Magic XOR), and frame identification.
+  * Resolved CC1101 GDO0 serial input mode (`IOCFG0 = 0x0D`, `setPktFormat(3)`, `setPA(12)`) and active frequency propagation for RMT signal modulation.
+  * Updated `test_ble.py` to verify protocol transmission & KeeLoq encoding commands over BLE.
 
 ---
 
 ## 5. Planned Milestones Roadmap
 
-- [ ] **Feature 4: CC1101 Driver & Precise Frequency Calibration Extraction**
-  * Extract `structs.h`, `cc1101_driver.h/.cpp`, and `rf_utils.h/.cpp`.
-  * Implement `cc1101ApplyPreciseCalibration` (`FSCTRL0`, `FSCAL2`, `TEST0`, `FREND0/1`) for 315MHz, 433MHz, 868MHz, 915MHz bands.
-  * Add BLE self-test command (`0x01` / `INIT`) verifying MARCSTATE and version byte.
-- [ ] **Feature 5: ESP32 RMT Microsecond Timing Core (`rf_signal_engine`)**
-  * Implement `rmt_rx` channel (1 µs tick precision, non-blocking ring buffer).
-  * Implement `rmt_tx` channel (sub-microsecond signed pulse timing sequence transmitter on GPIO 3).
-- [ ] **Feature 6: Protocol Registry & KeeLoq Engine Integration**
+- [ ] **Feature 7: Dual Command Parser (Binary Packets + ASCII Text CLI)**
   * Integrate static OOK protocol database (`rf_registry`: Princeton, CAME, Nice, Holtek, Linear, Clemsa, Mastercode, Ansonic, GateTX, PhoenixV2, RcSwitch).
   * Integrate generic OOK decoder (`rf_decoder`) and encoder (`rf_encoder`).
   * Integrate KeeLoq block cipher, manufacturer keystore `/mfcodes`, and learning schemes (`rf_keeloq`).
