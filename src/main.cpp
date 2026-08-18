@@ -1,6 +1,7 @@
 #include "app_config.h"
 #include "ble_server.h"
 #include "cc1101_driver.h"
+#include "cmd_router.h"
 #include "rf_decoder.h"
 #include "rf_encoder.h"
 #include "rf_keeloq.h"
@@ -12,119 +13,7 @@
 // Handle incoming BLE RX commands
 void handleBLERxData(const uint8_t *data, size_t length) {
     if (length == 0) return;
-
-    // Build String from command
-    String cmdStr = "";
-    for (size_t i = 0; i < length; i++) {
-        if (data[i] == '\r' || data[i] == '\n') break;
-        cmdStr += (char)data[i];
-    }
-    cmdStr.trim();
-
-    Serial.printf("[BLE CMD] Received: '%s' (Len: %u)\n", cmdStr.c_str(), (unsigned int)length);
-
-    JsonDocument doc;
-
-    if (cmdStr.equalsIgnoreCase("STATUS") || cmdStr.equalsIgnoreCase("INIT") || data[0] == 0x01) {
-        doc["status"] = "ok";
-        doc["cmd"] = "STATUS";
-        doc["detected"] = cc1101Driver.isDetected();
-        doc["version"] = cc1101Driver.getVersion();
-        doc["partnum"] = cc1101Driver.getPartNum();
-        doc["marcstate"] = cc1101Driver.getMarcState();
-        doc["freq"] = cc1101Driver.getFrequency();
-        doc["rssi"] = cc1101Driver.getRssi();
-        doc["rmt_rx"] = rfSignalEngine.isRxActive();
-    } else if (cmdStr.startsWith("FREQ ") || cmdStr.startsWith("freq ")) {
-        float freq = cmdStr.substring(5).toFloat();
-        if (freq > 0) {
-            cc1101Driver.setFrequency(freq, false);
-            doc["status"] = "ok";
-            doc["cmd"] = "FREQ";
-            doc["freq"] = cc1101Driver.getFrequency();
-        } else {
-            doc["status"] = "error";
-            doc["msg"] = "Invalid frequency format";
-        }
-    } else if (cmdStr.equalsIgnoreCase("MODE RX")) {
-        cc1101Driver.setRxMode(cc1101Driver.getFrequency());
-        doc["status"] = "ok";
-        doc["cmd"] = "MODE";
-        doc["mode"] = "RX";
-    } else if (cmdStr.equalsIgnoreCase("MODE TX")) {
-        cc1101Driver.setTxMode(cc1101Driver.getFrequency());
-        doc["status"] = "ok";
-        doc["cmd"] = "MODE";
-        doc["mode"] = "TX";
-    } else if (cmdStr.equalsIgnoreCase("MODE IDLE")) {
-        cc1101Driver.setIdle();
-        doc["status"] = "ok";
-        doc["cmd"] = "MODE";
-        doc["mode"] = "IDLE";
-    } else if (cmdStr.equalsIgnoreCase("RMT RX START")) {
-        bool ok = rfSignalEngine.startRx(cc1101Driver.getFrequency());
-        doc["status"] = ok ? "ok" : "error";
-        doc["cmd"] = "RMT RX START";
-        doc["active"] = rfSignalEngine.isRxActive();
-    } else if (cmdStr.equalsIgnoreCase("RMT RX STOP")) {
-        rfSignalEngine.stopRx();
-        doc["status"] = "ok";
-        doc["cmd"] = "RMT RX STOP";
-        doc["active"] = rfSignalEngine.isRxActive();
-    } else if (cmdStr.startsWith("TX_PROTO ")) {
-        // Format: TX_PROTO <proto_name> <key_hex> [bits] [te] [repeat]
-        String args = cmdStr.substring(9);
-        args.trim();
-
-        int firstSpace = args.indexOf(' ');
-        if (firstSpace > 0) {
-            String protoName = args.substring(0, firstSpace);
-            String rest = args.substring(firstSpace + 1);
-            rest.trim();
-
-            int secondSpace = rest.indexOf(' ');
-            String keyHexStr = (secondSpace > 0) ? rest.substring(0, secondSpace) : rest;
-
-            uint64_t key = strtoull(keyHexStr.c_str(), NULL, 16);
-            const RfProtocolDef *def = rf_find_protocol(protoName);
-
-            if (def != nullptr) {
-                unsigned int bits = def->bits ? def->bits : 24;
-                int te = def->te;
-                int repeat = 10;
-
-                bool ok = rf_tx_protocol(key, bits, te, def, repeat);
-                doc["status"] = ok ? "ok" : "error";
-                doc["cmd"] = "TX_PROTO";
-                doc["proto"] = def->name;
-                doc["key"] = keyHexStr;
-            } else {
-                doc["status"] = "error";
-                doc["msg"] = "Unknown protocol name";
-            }
-        } else {
-            doc["status"] = "error";
-            doc["msg"] = "Invalid TX_PROTO format";
-        }
-    } else if (cmdStr.startsWith("TX_KEELOQ ")) {
-        String keyHexStr = cmdStr.substring(10);
-        keyHexStr.trim();
-        uint64_t key = strtoull(keyHexStr.c_str(), NULL, 16);
-
-        bool ok = rf_tx_keeloq(key, 10);
-        doc["status"] = ok ? "ok" : "error";
-        doc["cmd"] = "TX_KEELOQ";
-        doc["key"] = keyHexStr;
-    } else {
-        doc["status"] = "unknown_command";
-        doc["raw"] = cmdStr;
-    }
-
-    String responseStr;
-    serializeJson(doc, responseStr);
-    Serial.printf("[BLE RESP] %s\n", responseStr.c_str());
-    Serial.flush();
-    bleServer.notifyText(responseStr);
+    cmdRouter.processInput(data, length);
 }
 
 void setup() {
@@ -165,6 +54,15 @@ void loop() {
             rfSignalEngine.isRxActive() ? "ACTIVE" : "OFF"
         );
         Serial.flush();
+    }
+
+    // Check USB CDC Serial for incoming terminal commands
+    if (Serial.available()) {
+        String serialLine = Serial.readStringUntil('\n');
+        serialLine.trim();
+        if (serialLine.length() > 0) {
+            cmdRouter.processInput((const uint8_t *)serialLine.c_str(), serialLine.length());
+        }
     }
 
     // Poll RMT RX pulse stream if active

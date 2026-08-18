@@ -74,22 +74,26 @@ Extract the complete Sub-GHz RF capability (OOK Protocol Decoding/Encoding, KeeL
   * Built `include/rf_encoder.h` and `src/rf_encoder.cpp` (`rf_tx_protocol`, `rf_tx_keeloq`, `rf_tx_raw_bits`).
   * Built `include/rf_decoder.h` and `src/rf_decoder.cpp` (`rf_decode_ook`, `rf_decode_keeloq`, `rf_build_raw`).
   * Built `include/rf_keeloq.h` and `src/rf_keeloq.cpp` with 32-bit block cipher, KeeLoq learning schemes (Simple, Normal, Secure, Magic XOR), and frame identification.
-  * Resolved CC1101 GDO0 serial input mode (`IOCFG0 = 0x0D`, `setPktFormat(3)`, `setPA(12)`) and active frequency propagation for RMT signal modulation.
-  * Updated `test_ble.py` to verify protocol transmission & KeeLoq encoding commands over BLE.
+  * Aligned CC1101 initialization, frequency synthesizer tuning (`setMHZ`), calibration (`applyPreciseCalibration`), and OOK presets (`applyFixedFreqOokPreset`) 100% 1-to-1 with original Bruce firmware.
+  * Added explicit `IOCFG0 = 0x0D` GDO0 serial routing for RX mode in `setRxMode()` and expanded RMT RX idle gap window to `50 ms` for high-sensitivity capture.
+  * Built interactive CLI menu `pocketrf_cli.py` for one-keypress multi-band testing.
+- [x] **Feature 7: Dual Command Parser (Binary Packets 0xAA + ASCII Text CLI subghz)**
+  * Created `include/cmd_router.h` and `src/cmd_router.cpp` implementing smart input detection.
+  * **Binary Packet Router (`0xAA` frames):** Parses compact binary commands (`CMD_STATUS`, `CMD_SET_FREQ`, `CMD_START_RX`, `CMD_STOP_RX`, `CMD_TX_PROTO`, `CMD_TX_KEELOQ`, `CMD_TX_RAW`) with CRC8 verification for Android/iOS mobile companion app.
+  * **ASCII CLI Router:** Parses Bruce terminal syntax (`subghz freq <hz_or_mhz>`, `subghz rx`, `subghz rx stop`, `subghz txp <proto> <freq> <bits> <key_hex>`, `subghz keeloqtx <key_hex>`, `subghz status`).
+  * Enabled USB CDC Serial input in `main.cpp` (`Serial.available()`), allowing terminal commands to be typed directly into Serial Monitor alongside BLE.
 
 ---
 
 ## 5. Planned Milestones Roadmap
 
-- [ ] **Feature 7: Dual Command Parser (Binary Packets + ASCII Text CLI)**
-  * Integrate static OOK protocol database (`rf_registry`: Princeton, CAME, Nice, Holtek, Linear, Clemsa, Mastercode, Ansonic, GateTX, PhoenixV2, RcSwitch).
-  * Integrate generic OOK decoder (`rf_decoder`) and encoder (`rf_encoder`).
-  * Integrate KeeLoq block cipher, manufacturer keystore `/mfcodes`, and learning schemes (`rf_keeloq`).
-  * Add RAW pulse sequence generator & CRC-64 signal deduplication.
-- [ ] **Feature 7: Dual Command Parser (Binary Packets + ASCII Text CLI)**
-  * **Binary Mode:** Structured 0xAA frames for Android mobile app (`SET_FREQ`, `START_RX`, `STOP_RX`, `TX_PROTO`, `TX_KEELOQ`, `TX_RAW`, `START_SWEEP`, `JAMMER_CTRL`).
-  * **ASCII Text Mode:** Terminal commands (`subghz freq`, `subghz rx`, `subghz txp`, `subghz keeloqtx`, `subghz sweep`, `subghz jam`).
 - [ ] **Feature 8: RF Service State Machine Manager (`rf_service`)**
   * Manage active device states (`IDLE`, `RX_DECODED`, `RX_RAW`, `TX_ACTIVE`, `SWEEP_ACTIVE`, `JAMMER_ACTIVE`).
-  * Real-time RSSI sweep streamer over BLE notifications for Waterfall UI.
-  * Jammer controller with safety auto-cutoff timers.
+  * Integrate frequency hopping scanner & frequency counter (`rf_listen`).
+- [ ] **Feature 9: Spectrum Analyzer & Waterfall RSSI Engine**
+  * Rapid channel RSSI power sweeping across 300–928 MHz.
+  * Real-time RSSI array streamer over BLE notifications for mobile Waterfall UI.
+- [ ] **Feature 10: Sub-GHz RF Jammer, Bruteforce Engine & RAW (.sub) Replay**
+  * Continuous CW carrier jammer, OOK noise jammer, and frequency-hopping jammer (with safety timeout).
+  * Automated key generator for fixed-code receivers (CAME 12-bit, Princeton 24-bit, Nice FLO 12-bit).
+  * Flipper-compatible `.sub` file format parser and RAW pulse sequence emitter.
