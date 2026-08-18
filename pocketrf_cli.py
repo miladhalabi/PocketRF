@@ -132,7 +132,8 @@ async def interactive_menu(rf_client):
         print(" [12] Transmit KeeLoq (Key: 123456789ABCDEF0) @ 868.35 MHz")
         print(" [13] Transmit Custom Protocol / Key...")
         print("--------------------------------------------------")
-        print(" [14] Query Device Hardware Status")
+        print(" [14] Frequency Counter / Listener @ 433.92 MHz")
+        print(" [15] Query Device Hardware Status")
         print(" [0]  Exit")
         print("==================================================")
 
@@ -193,9 +194,22 @@ async def interactive_menu(rf_client):
                 await rf_client.send_cmd(f"FREQ {freq_val}")
                 await rf_client.send_cmd(f"TX_PROTO {proto.strip()} {key_hex.strip()}")
             elif choice == "14":
+                print(f"\n==================================================")
+                print(f" 🎛️ FREQUENCY COUNTER / LISTENER ON 433.92 MHz")
+                print(f" Press Enter or Ctrl+C to return to main menu.")
+                print(f"==================================================")
+                await rf_client.send_cmd("FREQ 433.92")
+                await rf_client.send_cmd("LISTEN START")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping Listener...")
+                await rf_client.send_cmd("STOP")
+            elif choice == "15":
                 await rf_client.send_cmd("STATUS")
             else:
-                print("❌ Invalid selection. Please enter a number between 0 and 14.")
+                print("❌ Invalid selection. Please enter a number between 0 and 15.")
         except (KeyboardInterrupt, EOFError):
             break
 

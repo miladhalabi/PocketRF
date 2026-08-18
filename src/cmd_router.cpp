@@ -93,14 +93,28 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
             break;
         }
         case CMD_START_RX: {
-            bool ok = rfSignalEngine.startRx(cc1101Driver.getFrequency());
+            bool ok = rfService.startRxDecoded(cc1101Driver.getFrequency());
             respBuf[2] = 1;
             respBuf[3] = ok ? 0x00 : 0x01;
             respLen = 4;
             break;
         }
         case CMD_STOP_RX: {
-            rfSignalEngine.stopRx();
+            rfService.stop();
+            respBuf[2] = 1;
+            respBuf[3] = 0x00;
+            respLen = 4;
+            break;
+        }
+        case CMD_START_LISTEN: {
+            bool ok = rfService.startListen(cc1101Driver.getFrequency());
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
+        case CMD_STOP_ALL: {
+            rfService.stop();
             respBuf[2] = 1;
             respBuf[3] = 0x00;
             respLen = 4;
@@ -181,15 +195,20 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
             doc["cmd"] = "subghz freq";
             doc["freq"] = cc1101Driver.getFrequency();
         } else if (lowerSub == "rx") {
-            bool ok = rfSignalEngine.startRx(cc1101Driver.getFrequency());
+            bool ok = rfService.startRxDecoded(cc1101Driver.getFrequency());
             doc["status"] = ok ? "ok" : "error";
             doc["cmd"] = "subghz rx";
-            doc["active"] = rfSignalEngine.isRxActive();
-        } else if (lowerSub == "rx stop") {
-            rfSignalEngine.stopRx();
+            doc["active"] = (rfService.getState() == RfState::RX_DECODED);
+        } else if (lowerSub == "rx stop" || lowerSub == "stop") {
+            rfService.stop();
             doc["status"] = "ok";
-            doc["cmd"] = "subghz rx stop";
-            doc["active"] = rfSignalEngine.isRxActive();
+            doc["cmd"] = "subghz stop";
+            doc["active"] = false;
+        } else if (lowerSub == "listen") {
+            bool ok = rfService.startListen(cc1101Driver.getFrequency());
+            doc["status"] = ok ? "ok" : "error";
+            doc["cmd"] = "subghz listen";
+            doc["active"] = (rfService.getState() == RfState::LISTEN);
         } else if (lowerSub.startsWith("txp ")) {
             // subghz txp <proto> <freq_hz> <bits> <key_hex> [te] [repeat]
             String args = subCmd.substring(4);
@@ -296,15 +315,20 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
         doc["cmd"] = "MODE";
         doc["mode"] = "IDLE";
     } else if (lowerStr.equalsIgnoreCase("RMT RX START")) {
-        bool ok = rfSignalEngine.startRx(cc1101Driver.getFrequency());
+        bool ok = rfService.startRxDecoded(cc1101Driver.getFrequency());
         doc["status"] = ok ? "ok" : "error";
         doc["cmd"] = "RMT RX START";
-        doc["active"] = rfSignalEngine.isRxActive();
-    } else if (lowerStr.equalsIgnoreCase("RMT RX STOP")) {
-        rfSignalEngine.stopRx();
+        doc["active"] = (rfService.getState() == RfState::RX_DECODED);
+    } else if (lowerStr.equalsIgnoreCase("RMT RX STOP") || lowerStr.equalsIgnoreCase("STOP")) {
+        rfService.stop();
         doc["status"] = "ok";
-        doc["cmd"] = "RMT RX STOP";
-        doc["active"] = rfSignalEngine.isRxActive();
+        doc["cmd"] = "STOP";
+        doc["active"] = false;
+    } else if (lowerStr.equalsIgnoreCase("LISTEN START")) {
+        bool ok = rfService.startListen(cc1101Driver.getFrequency());
+        doc["status"] = ok ? "ok" : "error";
+        doc["cmd"] = "LISTEN START";
+        doc["active"] = (rfService.getState() == RfState::LISTEN);
     } else if (lowerStr.startsWith("tx_proto ")) {
         String args = cmdStr.substring(9);
         args.trim();

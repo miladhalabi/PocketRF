@@ -6,6 +6,7 @@
 #include "rf_encoder.h"
 #include "rf_keeloq.h"
 #include "rf_registry.h"
+#include "rf_service.h"
 #include "rf_signal_engine.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -35,6 +36,9 @@ void setup() {
         Serial.println("[SYSTEM] WARNING: CC1101 hardware self-test FAILED! Check wiring.");
     }
 
+    // Initialize RF Service
+    rfService.init();
+
     // Initialize BLE GATT Server
     bleServer.begin(handleBLERxData);
 }
@@ -44,14 +48,14 @@ void loop() {
     if (millis() - lastLog > 5000) {
         lastLog = millis();
         Serial.printf(
-            "[SYSTEM] BLE: %s | Peer MTU: %u | CC1101 State: 0x%02X | Freq: %.2f MHz | RSSI: %d dBm | RMT "
-            "RX: %s\n",
+            "[SYSTEM] BLE: %s | Peer MTU: %u | CC1101 State: 0x%02X | Freq: %.2f MHz | RSSI: %d dBm | RF "
+            "State: %d\n",
             bleServer.isConnected() ? "Connected" : "Advertising",
             bleServer.getPeerMTU(),
             cc1101Driver.getMarcState(),
             cc1101Driver.getFrequency(),
             cc1101Driver.getRssi(),
-            rfSignalEngine.isRxActive() ? "ACTIVE" : "OFF"
+            (int)rfService.getState()
         );
         Serial.flush();
     }
@@ -65,42 +69,8 @@ void loop() {
         }
     }
 
-    // Poll RMT RX pulse stream if active
-    if (rfSignalEngine.isRxActive()) {
-        std::vector<int> capturedPulses;
-        if (rfSignalEngine.pollRxDurations(capturedPulses, 0)) {
-            RfCodes decoded;
-            bool isDecoded = false;
-
-            if (rf_decode_ook(capturedPulses, decoded)) {
-                isDecoded = true;
-            } else if (rf_decode_keeloq(capturedPulses, decoded)) {
-                keeloq_identify(decoded);
-                isDecoded = true;
-            }
-
-            JsonDocument pulseDoc;
-            if (isDecoded) {
-                pulseDoc["type"] = "decoded_rf";
-                pulseDoc["protocol"] = decoded.protocol;
-                pulseDoc["bits"] = decoded.Bit;
-                pulseDoc["key"] = String((unsigned long long)decoded.key, HEX);
-                pulseDoc["te"] = decoded.te;
-                pulseDoc["freq"] = cc1101Driver.getFrequency();
-                pulseDoc["rssi"] = cc1101Driver.getRssi();
-                if (decoded.protocol == "KeeLoq") { pulseDoc["mf_name"] = decoded.mf_name; }
-            } else {
-                pulseDoc["type"] = "raw_pulse";
-                pulseDoc["count"] = capturedPulses.size();
-                pulseDoc["freq"] = cc1101Driver.getFrequency();
-                pulseDoc["rssi"] = cc1101Driver.getRssi();
-            }
-
-            String pulseJson;
-            serializeJson(pulseDoc, pulseJson);
-            bleServer.notifyText(pulseJson);
-        }
-    }
+    // Service active RF tasks
+    rfService.loop();
 
     delay(10);
 }

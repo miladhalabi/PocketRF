@@ -87,9 +87,12 @@ Extract the complete Sub-GHz RF capability (OOK Protocol Decoding/Encoding, KeeL
 
 ## 5. Planned Milestones Roadmap
 
-- [ ] **Feature 8: RF Service State Machine Manager (`rf_service`)**
-  * Manage active device states (`IDLE`, `RX_DECODED`, `RX_RAW`, `TX_ACTIVE`, `SWEEP_ACTIVE`, `JAMMER_ACTIVE`).
-  * Integrate frequency hopping scanner & frequency counter (`rf_listen`).
+- [x] **Feature 8: RF Service State Machine Manager (`rf_service`)**
+  * Created `include/rf_service.h` and `src/rf_service.cpp` implementing central thread-safe state machine (`IDLE`, `RX_DECODED`, `RX_RAW`, `LISTEN`).
+  * Implemented Frequency Counter / Signal Listener (`startListen`) using IRAM-safe GPIO interrupt handler (`onListenPulseISR`) on GPIO 3 (GDO0).
+  * Streaming live pulse durations, signal center frequencies, and RSSI metrics as JSON payloads over BLE.
+  * Added binary commands (`CMD_START_LISTEN = 0x08`, `CMD_STOP_ALL = 0x09`) and ASCII sub-commands (`subghz listen`, `subghz stop`).
+  * Expanded interactive `pocketrf_cli.py` Python test utility with Option 14 Frequency Listener.
 - [ ] **Feature 9: Spectrum Analyzer & Waterfall RSSI Engine**
   * Rapid channel RSSI power sweeping across 300–928 MHz.
   * Real-time RSSI array streamer over BLE notifications for mobile Waterfall UI.

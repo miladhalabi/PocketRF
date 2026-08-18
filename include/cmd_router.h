@@ -6,6 +6,7 @@
 #include "rf_encoder.h"
 #include "rf_keeloq.h"
 #include "rf_registry.h"
+#include "rf_service.h"
 #include "rf_signal_engine.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -20,6 +21,8 @@ enum BinaryCmdId : uint8_t {
     CMD_TX_PROTO = 0x05,
     CMD_TX_KEELOQ = 0x06,
     CMD_TX_RAW = 0x07,
+    CMD_START_LISTEN = 0x08,
+    CMD_STOP_ALL = 0x09,
 };
 
 class CmdRouter {
