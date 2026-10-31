@@ -36,6 +36,29 @@ struct RfCodes {
     String filepath = "";
     int Bit = 0;
     int BitRAW = 0;
+
+    // Ported from Bruce's src/modules/rf/rf_utils.cpp RfCodes methods: verify a
+    // decrypted KeeLoq hop against this capture's (btn, serial) and, on match,
+    // recover the rolling counter into `cnt`.
+    bool keeloq_check_decrypt(uint32_t decrypt) {
+        uint16_t end_serial = serial & 0xFF;
+        if ((decrypt >> 28 == btn) &&
+            (((((uint16_t)(decrypt >> 16)) & 0xFF) == end_serial) ||
+             ((((uint16_t)(decrypt >> 16)) & 0xFF) == 0))) {
+            cnt = decrypt & 0xFFFF;
+            return true;
+        }
+        return false;
+    }
+
+    // Centurion uses a fixed 0x1CE discriminator instead of the serial.
+    bool keeloq_check_decrypt_centurion(uint32_t decrypt) {
+        if ((decrypt >> 28 == btn) && ((((uint16_t)(decrypt >> 16)) & 0x3FF) == 0x1CE)) {
+            cnt = decrypt & 0xFFFF;
+            return true;
+        }
+        return false;
+    }
 };
 
 struct FreqFound {

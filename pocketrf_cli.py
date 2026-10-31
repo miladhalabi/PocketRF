@@ -62,7 +62,7 @@ class PocketRFClient:
         except json.JSONDecodeError:
             parsed = {"raw": payload}
 
-        if parsed.get("type") in ("decoded_rf", "raw_pulse"):
+        if parsed.get("type") in ("decoded_rf", "raw_pulse", "scan_locked", "scan_decoded"):
             print(f"\n📡 [RF CAPTURE EVENT] {json.dumps(parsed, indent=2)}")
         else:
             print(f"\n📥 [RESPONSE] {json.dumps(parsed)}")
@@ -140,11 +140,12 @@ async def interactive_menu(rf_client):
         print(" [18] RF Jammer (full/itmt/noise/sweep) @ 433.92 MHz")
         print(" [19] Bruteforce Fixed-Code Receiver (CAME/Princeton/Nice FLO)")
         print(" [20] RAW .sub File Replay (Flipper-compatible)")
+        print(" [21] Auto Scan + Copy (sweeps 300-928 MHz, locks on, decodes)")
         print(" [0]  Exit")
         print("==================================================")
 
         try:
-            choice = await loop.run_in_executor(None, input, "Select choice (0-20): ")
+            choice = await loop.run_in_executor(None, input, "Select choice (0-21): ")
             choice = choice.strip()
 
             if choice == "0":
@@ -308,8 +309,22 @@ async def interactive_menu(rf_client):
                     payload,
                     response=True,
                 )
+            elif choice == "21":
+                print(f"\n==================================================")
+                print(f" \U0001f50d AUTO SCAN + COPY (300 - 928 MHz)")
+                print(f" Sweeps for an active signal, locks on, and decodes")
+                print(f" (KeeLoq identified by manufacturer when recognized).")
+                print(f" Press Enter or Ctrl+C to stop and return to menu.")
+                print(f"==================================================")
+                await rf_client.send_cmd("subghz scan")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping Scan...")
+                await rf_client.send_cmd("STOP")
             else:
-                print("❌ Invalid selection. Please enter a number between 0 and 20.")
+                print("❌ Invalid selection. Please enter a number between 0 and 21.")
         except (KeyboardInterrupt, EOFError):
             break
 

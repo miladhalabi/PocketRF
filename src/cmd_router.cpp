@@ -258,6 +258,13 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
             respLen = 4;
             break;
         }
+        case CMD_START_SCAN: {
+            bool ok = rfService.startScan();
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
         default:
             respBuf[2] = 1;
             respBuf[3] = 0xFE; // Unknown command
@@ -512,6 +519,29 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
             } else {
                 doc["status"] = "error";
                 doc["msg"] = "Invalid rawtx parameters";
+            }
+        } else if (lowerSub == "scan") {
+            // subghz scan - auto-sweep 300-928 MHz for an active signal, lock
+            // on and keep decoding (KeeLoq first, then OOK registry).
+            bool ok = rfService.startScan();
+            doc["status"] = ok ? "ok" : "error";
+            doc["cmd"] = "subghz scan";
+            doc["active"] = (rfService.getState() == RfState::SCAN);
+        } else if (lowerSub.startsWith("preset ")) {
+            // subghz preset <name> - applies a radio modulation preset
+            // (Ook270Async/Ook650Async/2FSKDev238Async/2FSKDev476Async/
+            // MSK99_97KbAsync/GFSK9_99KbAsync) ahead of a TX/RX.
+            String presetName = subCmd.substring(7);
+            presetName.trim();
+            const RfPreset *preset = rf_find_preset(presetName);
+            if (preset) {
+                rf_apply_preset(preset);
+                doc["status"] = "ok";
+                doc["cmd"] = "subghz preset";
+                doc["preset"] = preset->name;
+            } else {
+                doc["status"] = "error";
+                doc["msg"] = "Unknown preset name";
             }
         } else {
             doc["status"] = "error";

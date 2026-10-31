@@ -30,11 +30,13 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
   * **Precise Calibration Engine:** Automated `FSCTRL0`, `FSCAL2`, `TEST0`, `FREND0/1` tuning for peak sensitivity.
   * **Microsecond Timing Core:** Uses ESP32 native RMT hardware peripherals (`rmt_rx` / `rmt_tx`) for microsecond pulse precision.
   * **Static OOK Protocol Engine:** Princeton, CAME, NICE_FLO, Linear, Clemsa, Mastercode, Ansonic, GateTX, Holtek/HT12, PhoenixV2, and RcSwitch families.
-  * **KeeLoq Rolling Code Cipher:** 528-round NLF engine supporting Simple, Normal, Secure, Magic XOR, Pujol, and Erreka learning schemes.
+  * **KeeLoq Rolling Code Cipher:** 528-round NLF engine supporting Simple, Normal, Secure, Magic XOR, Pujol, and Erreka learning schemes, with manufacturer identification against ~30 real brands (Aprimatic, Centurion, NICE, FAAC, etc.) via an embedded, AES-encrypted keystore.
+  * **Multi-Modulation Presets:** OOK/ASK, 2-FSK, MSK and GFSK presets, matching Flipper Zero's `.sub` preset names.
   * **Spectrum / Waterfall Sweeper:** Real-time RSSI channel scanning.
   * **RF Jammer:** Full-power, intermittent, CC1101 PN9 hardware noise, and ±5MHz frequency-sweep modes, with a 30s hard safety cutoff.
   * **Bruteforce Key Generator:** Enumerates the full keyspace of a fixed-code OOK protocol (CAME 12-bit, Princeton 24-bit, Nice FLO 12-bit, etc.).
   * **RAW Signal Replay:** Flipper-compatible `.sub` RAW file parser + RMT-precision replay.
+  * **Auto Scan + Copy:** Sweeps all 3 ISM bands for an active signal, locks on, and decodes automatically (KeeLoq identified by manufacturer when recognized).
 
 ---
 

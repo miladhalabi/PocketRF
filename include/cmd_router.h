@@ -7,6 +7,7 @@
 #include "rf_encoder.h"
 #include "rf_jammer.h"
 #include "rf_keeloq.h"
+#include "rf_presets.h"
 #include "rf_raw.h"
 #include "rf_registry.h"
 #include "rf_service.h"
@@ -30,6 +31,7 @@ enum BinaryCmdId : uint8_t {
     CMD_START_SPECTRUM_SWEEP = 0x0B,
     CMD_START_JAM = 0x0C,
     CMD_START_BRUTEFORCE = 0x0D,
+    CMD_START_SCAN = 0x0E,
 };
 
 class CmdRouter {

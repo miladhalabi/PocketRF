@@ -32,6 +32,8 @@ void RfService::stop() {
 
     if (rfBruteforce.isActive()) { rfBruteforce.stop(); }
 
+    if (rfScanner.isActive()) { rfScanner.stop(); }
+
     cc1101Driver.setIdle();
     m_state = RfState::IDLE;
     Serial.println("[RF SERVICE] Stopped all active RF operations.");
@@ -104,6 +106,13 @@ bool RfService::startBruteforce(const RfProtocolDef *def, int bits, float freqMh
     return ok;
 }
 
+bool RfService::startScan() {
+    stop();
+    bool ok = rfScanner.begin();
+    if (ok) { m_state = RfState::SCAN; }
+    return ok;
+}
+
 void RfService::loop() {
     switch (m_state) {
         case RfState::IDLE: break;
@@ -117,10 +126,12 @@ void RfService::loop() {
                     bool isDecoded = false;
 
                     if (m_state == RfState::RX_DECODED) {
-                        if (rf_decode_ook(capturedPulses, decoded)) {
+                        // Try KeeLoq first (matches Bruce's rf_scan.cpp order): its 64-bit
+                        // frame structure is strict enough to check cheaply before falling
+                        // back to the looser OOK registry match.
+                        if (rf_try_keeloq(capturedPulses, decoded)) {
                             isDecoded = true;
-                        } else if (rf_decode_keeloq(capturedPulses, decoded)) {
-                            keeloq_identify(decoded);
+                        } else if (rf_decode_ook(capturedPulses, decoded)) {
                             isDecoded = true;
                         }
                     }
@@ -134,7 +145,12 @@ void RfService::loop() {
                         pulseDoc["te"] = decoded.te;
                         pulseDoc["freq"] = cc1101Driver.getFrequency();
                         pulseDoc["rssi"] = cc1101Driver.getRssi();
-                        if (decoded.protocol == "KeeLoq") { pulseDoc["mf_name"] = decoded.mf_name; }
+                        if (decoded.protocol == "KeeLoq") {
+                            pulseDoc["mf_name"] = decoded.mf_name;
+                            pulseDoc["btn"] = decoded.btn;
+                            pulseDoc["serial"] = decoded.serial;
+                            if (decoded.mf_name != "Generic KeeLoq") pulseDoc["cnt"] = decoded.cnt;
+                        }
                     } else {
                         pulseDoc["type"] = "raw_pulse";
                         pulseDoc["count"] = capturedPulses.size();
@@ -202,6 +218,58 @@ void RfService::loop() {
                 serializeJson(doc, json);
                 bleServer.notifyText(json);
                 stop();
+            }
+            break;
+        }
+
+        case RfState::SCAN: {
+            if (!rfScanner.isActive()) {
+                stop();
+                break;
+            }
+            if (!rfScanner.isLocked()) {
+                rfScanner.tick();
+                if (rfScanner.isLocked()) {
+                    JsonDocument doc;
+                    doc["type"] = "scan_locked";
+                    doc["freq"] = rfScanner.getLockedFreq();
+                    String json;
+                    serializeJson(doc, json);
+                    bleServer.notifyText(json);
+                }
+                break;
+            }
+
+            // Locked: behave like RX_DECODED (KeeLoq first, then OOK registry),
+            // but stay in SCAN rather than stopping after one capture - matches
+            // Bruce's "lock onto the found frequency and keep receiving" model.
+            if (rfSignalEngine.isRxActive()) {
+                std::vector<int> capturedPulses;
+                if (rfSignalEngine.pollRxDurations(capturedPulses, 0)) {
+                    RfCodes decoded;
+                    bool isDecoded =
+                        rf_try_keeloq(capturedPulses, decoded) || rf_decode_ook(capturedPulses, decoded);
+
+                    if (isDecoded) {
+                        JsonDocument doc;
+                        doc["type"] = "scan_decoded";
+                        doc["protocol"] = decoded.protocol;
+                        doc["bits"] = decoded.Bit;
+                        doc["key"] = String((unsigned long long)decoded.key, HEX);
+                        doc["te"] = decoded.te;
+                        doc["freq"] = rfScanner.getLockedFreq();
+                        doc["rssi"] = cc1101Driver.getRssi();
+                        if (decoded.protocol == "KeeLoq") {
+                            doc["mf_name"] = decoded.mf_name;
+                            doc["btn"] = decoded.btn;
+                            doc["serial"] = decoded.serial;
+                            if (decoded.mf_name != "Generic KeeLoq") doc["cnt"] = decoded.cnt;
+                        }
+                        String json;
+                        serializeJson(doc, json);
+                        bleServer.notifyText(json);
+                    }
+                }
             }
             break;
         }

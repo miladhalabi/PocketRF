@@ -9,13 +9,24 @@
 #include "rf_jammer.h"
 #include "rf_keeloq.h"
 #include "rf_protocol.h"
+#include "rf_scan.h"
 #include "rf_signal_engine.h"
 #include "rf_spectrum.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <vector>
 
-enum class RfState { IDLE, RX_DECODED, RX_RAW, LISTEN, SPECTRUM_FIXED, SPECTRUM_SWEEP, JAM, BRUTEFORCE };
+enum class RfState {
+    IDLE,
+    RX_DECODED,
+    RX_RAW,
+    LISTEN,
+    SPECTRUM_FIXED,
+    SPECTRUM_SWEEP,
+    JAM,
+    BRUTEFORCE,
+    SCAN
+};
 
 class RfService {
 public:
@@ -31,6 +42,7 @@ public:
     bool startSpectrumSweep(float startFreq, float endFreq, float stepMhz = 1.0f, uint16_t intervalMs = 15);
     bool startJam(RfJamMode mode, float freqMhz);
     bool startBruteforce(const RfProtocolDef *def, int bits, float freqMhz, int repeat = 1);
+    bool startScan();
     void stop();
 
     void loop();
