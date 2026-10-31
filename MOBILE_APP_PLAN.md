@@ -6,6 +6,7 @@ the screen/controls for every feature the firmware already has. Full wire
 details for each one are in [`BLE_PROTOCOL.md`](BLE_PROTOCOL.md).
 
 - [ ] Scan/Copy (auto-sweeps for a signal, locks on, decodes — RAW capture too when a signal doesn't match a known protocol)
+- [ ] Fixed Freq Scan/Copy (same decode/RAW capture, but on a frequency you pick instead of auto-sweeping)
 - [ ] Custom SubGhz (pick a protocol, enter a key, send it)
 - [ ] KeeLoq (send a rolling-code key; manufacturer identified automatically on receive)
 - [ ] Spectrum (live RSSI + sweep across the band)
