@@ -106,9 +106,9 @@ bool RfService::startBruteforce(const RfProtocolDef *def, int bits, float freqMh
     return ok;
 }
 
-bool RfService::startScan() {
+bool RfService::startScan(int rssiThresholdDbm) {
     stop();
-    bool ok = rfScanner.begin();
+    bool ok = rfScanner.begin(rssiThresholdDbm);
     if (ok) { m_state = RfState::SCAN; }
     return ok;
 }

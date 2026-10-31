@@ -41,6 +41,14 @@ private:
     bool m_initialized = false;
     uint8_t
     interpolateFsctrl0(float frequency, float minFreq, float maxFreq, uint8_t minValue, uint8_t maxValue);
+
+    // Brief dummy TX pulse immediately before arming RX. Workaround for an
+    // observed hardware quirk on this board: listening sometimes produces
+    // nothing until a TX has happened at least once, then subsequent RX
+    // attempts work reliably. A short self-transmitted pulse reproduces
+    // that "prime the receiver" effect without needing a real TX from the
+    // user. See cc1101_driver.cpp for the fuller explanation.
+    void warmUpBeforeRx();
 };
 
 extern CC1101Driver cc1101Driver;

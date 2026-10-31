@@ -42,7 +42,7 @@ public:
     bool startSpectrumSweep(float startFreq, float endFreq, float stepMhz = 1.0f, uint16_t intervalMs = 15);
     bool startJam(RfJamMode mode, float freqMhz);
     bool startBruteforce(const RfProtocolDef *def, int bits, float freqMhz, int repeat = 1);
-    bool startScan();
+    bool startScan(int rssiThresholdDbm = -65);
     void stop();
 
     void loop();

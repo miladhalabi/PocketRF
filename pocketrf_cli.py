@@ -310,13 +310,17 @@ async def interactive_menu(rf_client):
                     response=True,
                 )
             elif choice == "21":
+                threshold = await loop.run_in_executor(
+                    None, input, "RSSI threshold dBm [-65] (lower = more sensitive, but may lock onto noise): "
+                )
+                threshold = threshold.strip() or "-65"
                 print(f"\n==================================================")
                 print(f" \U0001f50d AUTO SCAN + COPY (300 - 928 MHz)")
-                print(f" Sweeps for an active signal, locks on, and decodes")
+                print(f" Sweeps for an active signal above {threshold}dBm, locks on, decodes")
                 print(f" (KeeLoq identified by manufacturer when recognized).")
                 print(f" Press Enter or Ctrl+C to stop and return to menu.")
                 print(f"==================================================")
-                await rf_client.send_cmd("subghz scan")
+                await rf_client.send_cmd(f"subghz scan {threshold}")
                 try:
                     await loop.run_in_executor(None, sys.stdin.readline)
                 except (KeyboardInterrupt, asyncio.CancelledError):

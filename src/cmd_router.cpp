@@ -259,7 +259,9 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
             break;
         }
         case CMD_START_SCAN: {
-            bool ok = rfService.startScan();
+            // Payload: rssiThresholdDbm(i8, optional - omit for default -65)
+            int threshold = (payloadLen >= 1) ? (int)(int8_t)payload[0] : -65;
+            bool ok = rfService.startScan(threshold);
             respBuf[2] = 1;
             respBuf[3] = ok ? 0x00 : 0x01;
             respLen = 4;
@@ -520,13 +522,23 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
                 doc["status"] = "error";
                 doc["msg"] = "Invalid rawtx parameters";
             }
-        } else if (lowerSub == "scan") {
-            // subghz scan - auto-sweep 300-928 MHz for an active signal, lock
-            // on and keep decoding (KeeLoq first, then OOK registry).
-            bool ok = rfService.startScan();
+        } else if (lowerSub == "scan" || lowerSub.startsWith("scan ")) {
+            // subghz scan [rssi_threshold_dbm] - auto-sweep 300-928 MHz for an
+            // active signal (RSSI above the threshold, default -65), lock on
+            // and keep decoding (KeeLoq first, then OOK registry). The
+            // threshold is tunable since RSSI calibration varies noticeably
+            // between CC1101 clones/antennas.
+            int threshold = -65;
+            if (lowerSub.length() > 5) {
+                String t = subCmd.substring(5);
+                t.trim();
+                if (t.length() > 0) threshold = t.toInt();
+            }
+            bool ok = rfService.startScan(threshold);
             doc["status"] = ok ? "ok" : "error";
             doc["cmd"] = "subghz scan";
             doc["active"] = (rfService.getState() == RfState::SCAN);
+            doc["rssi_threshold"] = threshold;
         } else if (lowerSub.startsWith("preset ")) {
             // subghz preset <name> - applies a radio modulation preset
             // (Ook270Async/Ook650Async/2FSKDev238Async/2FSKDev476Async/

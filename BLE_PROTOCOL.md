@@ -112,7 +112,7 @@ response sent) — the client should apply its own write timeout.
 | `0x0B` | `CMD_START_SPECTRUM_SWEEP` | `startMhz`(f32) `endMhz`(f32) `stepMhz`(f32) *(optional — omit for default 300/928/1.0)* | `0x00`/`0x01` |
 | `0x0C` | `CMD_START_JAM` | `mode`(u8, see §3.1) `freqMhz`(f32) | `0x00`/`0x01` |
 | `0x0D` | `CMD_START_BRUTEFORCE` | `protoIdx`(u8) `bits`(u8, `0`=default) `freqMhz`(f32) `repeat`(u8) | `0x00`/`0x01` |
-| `0x0E` | `CMD_START_SCAN` | *(none)* | `0x00`/`0x01` |
+| `0x0E` | `CMD_START_SCAN` | `rssiThresholdDbm`(i8, optional — omit for default `-65`) | `0x00`/`0x01` |
 | *other* | — | — | `0xFE` = unknown command |
 
 Response byte values for the simple `0x00`/`0x01` commands: `0x00` = success,
@@ -183,7 +183,7 @@ shape (`{"status": "ok"|"error", "cmd": "...", ...extra fields}`).
 | `subghz rawtx <freq_mhz\|hz> <d1> <d2> ...` | Transmit a raw signed-µs duration list directly in the command line |
 | `subghz jam <full\|itmt\|noise\|sweep> [freq]` | Start the jammer (§3.1); `freq` optional, defaults to current |
 | `subghz brute <proto> [bits] [freq] [repeat]` | Start bruteforcing a protocol's full keyspace; `bits`/`freq`/`repeat` optional |
-| `subghz scan` | Start Scan+Copy: sweep 300-928MHz, lock onto an active signal, decode continuously (§5) |
+| `subghz scan [rssi_threshold_dbm]` | Start Scan+Copy: sweep 300-928MHz, lock onto a signal above the threshold (default `-65`), decode continuously (§5). **Tune this to your hardware** — see note below |
 | `subghz preset <name>` | Apply a modulation preset ahead of a TX/RX (§4.5) |
 | `subghz status` | One-shot device/radio status (same fields as §3.2, as JSON) |
 
@@ -274,6 +274,28 @@ bandwidth/data rate; it does **not** change frequency.
 
 Flipper's `FuriHalSubGhzPreset...` names are also accepted as aliases (e.g.
 `FuriHalSubGhzPresetOok270Async`).
+
+### 4.6 Tuning the Scan+Copy RSSI threshold
+
+`subghz scan`'s default threshold (`-65dBm`, Bruce's own default) assumes
+RSSI calibration roughly in line with a genuine CC1101. **RSSI calibration
+varies noticeably between CC1101 clones and antennas** — on one tested board
+here, even an actively-transmitting signal only ever read around
+`-70`-`-80dBm`, so the scanner never locked onto anything at the default
+threshold. If `subghz scan` never produces a `scan_locked` notification,
+try loosening it:
+
+```
+subghz scan -80
+```
+
+**Caution:** loosen it too far and the scanner will lock onto pure noise
+floor instead of a real signal (a `scan_locked` notification with no
+`scan_decoded` ever following it is a sign of that — `subghz scan` with a
+too-permissive threshold, or `subghz rssi` to watch the noise floor live,
+are the quickest ways to find the right value for your specific board). A
+reasonable approach: watch `subghz rssi` while idle to find your board's
+noise floor, then set the threshold 5-10dB above that.
 
 ---
 

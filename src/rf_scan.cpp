@@ -22,17 +22,15 @@ static const float subghz_frequency_list[] = {
 };
 static const int subghz_frequency_count = sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]);
 
-// Same RSSI threshold Bruce's RFScan uses to decide a frequency is "active".
-static const int RF_SCAN_RSSI_THRESHOLD = -65;
-
 RfScanner::RfScanner() {}
 
-bool RfScanner::begin() {
+bool RfScanner::begin(int rssiThresholdDbm) {
     stop();
     m_idx = 0;
     m_try = 0;
     m_locked = false;
     m_lockedFreq = 0.f;
+    m_rssiThreshold = rssiThresholdDbm;
     for (auto &f : m_freqs) {
         f.freq = 433.92f;
         f.rssi = -75;
@@ -47,7 +45,7 @@ bool RfScanner::begin() {
     Serial.printf(
         "[RF SCAN] Started: sweeping %d frequencies (300-928 MHz) for RSSI > %d dBm\n",
         subghz_frequency_count,
-        RF_SCAN_RSSI_THRESHOLD
+        m_rssiThreshold
     );
     return true;
 }
@@ -76,7 +74,7 @@ bool RfScanner::fastScanStep() {
     delay(5); // let RSSI settle, matches Bruce's fast_scan() vTaskDelay(5)
     int rssi = cc1101Driver.getRssi();
 
-    if (rssi > RF_SCAN_RSSI_THRESHOLD) {
+    if (rssi > m_rssiThreshold) {
         m_freqs[m_try].freq = checkFreq;
         m_freqs[m_try].rssi = rssi;
         m_try++;

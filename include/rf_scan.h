@@ -23,7 +23,11 @@ class RfScanner {
 public:
     RfScanner();
 
-    bool begin();
+    // rssiThresholdDbm: minimum RSSI to consider a frequency "active" (Bruce
+    // hardcodes -65; PocketRF makes it a parameter since RSSI calibration
+    // varies noticeably between CC1101 clones/antennas - a board whose real
+    // signals never read above ~-70dBm will never lock on at the default).
+    bool begin(int rssiThresholdDbm = -65);
     void stop();
     bool tick(); // returns false once the scanner is no longer active
 
@@ -35,6 +39,7 @@ private:
     bool m_active = false;
     bool m_locked = false;
     float m_lockedFreq = 0.f;
+    int m_rssiThreshold = -65;
 
     // FAST_SCAN state
     int m_idx = 0;

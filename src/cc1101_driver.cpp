@@ -175,8 +175,38 @@ void CC1101Driver::quickTune(float frequency) {
     ELECHOUSE_cc1101.setMHZ(frequency);
 }
 
+// Observed on real hardware: listening sometimes captures nothing at all
+// until a TX has happened once, after which subsequent RX attempts work
+// reliably - even a plain stop-then-listen-again retry (no TX) does NOT
+// fix it, so it isn't simple AGC/calibration settling on the first RX
+// attempt. IOCFG0 was ruled out (the driver's Init() already configures it
+// correctly for async-serial GDO0 output via ccmode=0, and nothing resets
+// it since). The most likely explanation left is this specific CC1101
+// clone's data-slicer/AGC only settling correctly after GDO0 has seen a
+// real transition - which only happens during an actual TX (we drive the
+// pin directly as an output then). This reproduces that "priming" pulse
+// internally so RX works without needing a real TX first.
+void CC1101Driver::warmUpBeforeRx() {
+    pinMode(CC1101_GDO0_PIN, OUTPUT);
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
+    digitalWrite(CC1101_GDO0_PIN, LOW);
+    ELECHOUSE_cc1101.setPA(12);
+    ELECHOUSE_cc1101.SetTx();
+    digitalWrite(CC1101_GDO0_PIN, HIGH);
+    delayMicroseconds(200);
+    digitalWrite(CC1101_GDO0_PIN, LOW);
+    ELECHOUSE_cc1101.setSidle();
+}
+
 bool CC1101Driver::setRxMode(float frequency) {
     if (!setFrequency(frequency, false)) return false;
+
+    warmUpBeforeRx();
+
+    // Flush any stale/overflowed RX FIFO content left over from a previous
+    // capture before arming RX again. The CC1101 only accepts SFRX while in
+    // IDLE (where warmUpBeforeRx() just left it).
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
 
     pinMode(CC1101_GDO0_PIN, INPUT);
     ELECHOUSE_cc1101.SetRx();
