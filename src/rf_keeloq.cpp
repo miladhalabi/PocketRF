@@ -3,7 +3,7 @@
 uint32_t keeloq_encrypt(const uint32_t data, const uint64_t key) {
     uint32_t x = data;
     for (int r = 0; r < 528; r++) {
-        uint8_t nlfInput = g5(x, 31, 26, 20, 9, 1);
+        uint8_t nlfInput = g5(x, 1, 9, 20, 26, 31);
         uint8_t nlfBit = bitAt(KEELOQ_NLF, nlfInput);
         uint8_t keyBit = bitAt(key, r & 63);
         uint8_t newBit = bitAt(x, 16) ^ bitAt(x, 0) ^ nlfBit ^ keyBit;
@@ -15,7 +15,7 @@ uint32_t keeloq_encrypt(const uint32_t data, const uint64_t key) {
 uint32_t keeloq_decrypt(const uint32_t data, const uint64_t key) {
     uint32_t x = data;
     for (int r = 527; r >= 0; r--) {
-        uint8_t nlfInput = g5(x, 30, 25, 19, 8, 0);
+        uint8_t nlfInput = g5(x, 0, 8, 19, 25, 30);
         uint8_t nlfBit = bitAt(KEELOQ_NLF, nlfInput);
         uint8_t keyBit = bitAt(key, r & 63);
         uint8_t newBit = bitAt(x, 31) ^ bitAt(x, 15) ^ nlfBit ^ keyBit;

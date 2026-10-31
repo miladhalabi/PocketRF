@@ -26,6 +26,12 @@ void RfService::stop() {
 
     if (rfSignalEngine.isRxActive()) { rfSignalEngine.stopRx(); }
 
+    if (rfSpectrum.isActive()) { rfSpectrum.stop(); }
+
+    if (rfJammer.isActive()) { rfJammer.stop(); }
+
+    if (rfBruteforce.isActive()) { rfBruteforce.stop(); }
+
     cc1101Driver.setIdle();
     m_state = RfState::IDLE;
     Serial.println("[RF SERVICE] Stopped all active RF operations.");
@@ -67,6 +73,35 @@ bool RfService::startListen(float freqMhz) {
     m_lastListenNotify = millis();
     Serial.printf("[RF SERVICE] Started Frequency Listener at %.2f MHz\n", freqMhz);
     return true;
+}
+
+bool RfService::startSpectrumFixed(float freqMhz, uint16_t intervalMs) {
+    stop();
+    m_currentFreq = freqMhz;
+    bool ok = rfSpectrum.startFixedRssi(freqMhz, intervalMs);
+    if (ok) { m_state = RfState::SPECTRUM_FIXED; }
+    return ok;
+}
+
+bool RfService::startSpectrumSweep(float startFreq, float endFreq, float stepMhz, uint16_t intervalMs) {
+    stop();
+    bool ok = rfSpectrum.startSweep(startFreq, endFreq, stepMhz, intervalMs);
+    if (ok) { m_state = RfState::SPECTRUM_SWEEP; }
+    return ok;
+}
+
+bool RfService::startJam(RfJamMode mode, float freqMhz) {
+    stop();
+    bool ok = rfJammer.begin(mode, freqMhz);
+    if (ok) { m_state = RfState::JAM; }
+    return ok;
+}
+
+bool RfService::startBruteforce(const RfProtocolDef *def, int bits, float freqMhz, int repeat) {
+    stop();
+    bool ok = rfBruteforce.begin(def, bits, freqMhz, repeat);
+    if (ok) { m_state = RfState::BRUTEFORCE; }
+    return ok;
 }
 
 void RfService::loop() {
@@ -135,6 +170,38 @@ void RfService::loop() {
                     serializeJson(doc, json);
                     bleServer.notifyText(json);
                 }
+            }
+            break;
+        }
+
+        case RfState::SPECTRUM_FIXED:
+        case RfState::SPECTRUM_SWEEP: {
+            rfSpectrum.loop();
+            break;
+        }
+
+        case RfState::JAM: {
+            if (!rfJammer.tick()) {
+                // Safety cutoff reached or jammer inactive: stop and notify.
+                JsonDocument doc;
+                doc["type"] = "jam_done";
+                doc["reason"] = "timeout";
+                String json;
+                serializeJson(doc, json);
+                bleServer.notifyText(json);
+                stop();
+            }
+            break;
+        }
+
+        case RfState::BRUTEFORCE: {
+            if (!rfBruteforce.tick()) {
+                JsonDocument doc;
+                doc["type"] = "bruteforce_done";
+                String json;
+                serializeJson(doc, json);
+                bleServer.notifyText(json);
+                stop();
             }
             break;
         }

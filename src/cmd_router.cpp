@@ -17,20 +17,45 @@ uint8_t CmdRouter::calculateCrc8(const uint8_t *data, size_t len) {
     return crc;
 }
 
+// Prefix for a full, possibly multi-line, Flipper-style .sub RAW payload.
+// Checked against the raw bytes (not newline-truncated) so embedded '\n'
+// characters inside the .sub text survive, unlike the generic single-line
+// ASCII command path below.
+#define RAWSUB_PREFIX "RAWSUB "
+
 void CmdRouter::processInput(const uint8_t *data, size_t length) {
     if (length == 0 || data == nullptr) return;
 
     if (data[0] == BINARY_FRAME_HEADER) {
         processBinaryFrame(data, length);
-    } else {
-        String cmdStr = "";
-        for (size_t i = 0; i < length; i++) {
-            if (data[i] == '\r' || data[i] == '\n') break;
-            cmdStr += (char)data[i];
-        }
-        cmdStr.trim();
-        processAsciiCommand(cmdStr);
+        return;
     }
+
+    const size_t prefixLen = sizeof(RAWSUB_PREFIX) - 1;
+    if (length > prefixLen && memcmp(data, RAWSUB_PREFIX, prefixLen) == 0) {
+        String subText((const char *)(data + prefixLen), length - prefixLen);
+        processRawSubCommand(subText);
+        return;
+    }
+
+    String cmdStr = "";
+    for (size_t i = 0; i < length; i++) {
+        if (data[i] == '\r' || data[i] == '\n') break;
+        cmdStr += (char)data[i];
+    }
+    cmdStr.trim();
+    processAsciiCommand(cmdStr);
+}
+
+void CmdRouter::processRawSubCommand(const String &subText) {
+    JsonDocument doc;
+    bool ok = rf_raw_tx_sub(subText);
+    doc["status"] = ok ? "ok" : "error";
+    doc["cmd"] = "RAWSUB";
+    if (!ok) doc["msg"] = "No RAW_Data found or transmit failed";
+    String responseStr;
+    serializeJson(doc, responseStr);
+    bleServer.notifyText(responseStr);
 }
 
 void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
@@ -120,6 +145,28 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
             respLen = 4;
             break;
         }
+        case CMD_START_SPECTRUM_FIXED: {
+            bool ok = rfService.startSpectrumFixed(cc1101Driver.getFrequency());
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
+        case CMD_START_SPECTRUM_SWEEP: {
+            float startF = 300.0f;
+            float endF = 928.0f;
+            float stepF = 1.0f;
+            if (payloadLen >= 12) {
+                memcpy(&startF, payload, 4);
+                memcpy(&endF, &payload[4], 4);
+                memcpy(&stepF, &payload[8], 4);
+            }
+            bool ok = rfService.startSpectrumSweep(startF, endF, stepF);
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
         case CMD_TX_PROTO: {
             if (payloadLen >= 10) {
                 uint8_t protoIdx = payload[0];
@@ -150,6 +197,64 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
                 respBuf[2] = 1;
                 respBuf[3] = 0xFF;
             }
+            respLen = 4;
+            break;
+        }
+        case CMD_TX_RAW: {
+            // Payload: freqMhz(float32) + count(uint16) + durations[count] (int16 each)
+            if (payloadLen >= 6) {
+                float freqMhz = 0;
+                memcpy(&freqMhz, payload, 4);
+                uint16_t count = 0;
+                memcpy(&count, &payload[4], 2);
+                bool ok = false;
+                if (payloadLen >= (size_t)(6 + count * 2)) {
+                    std::vector<int> durations;
+                    durations.reserve(count);
+                    for (uint16_t i = 0; i < count; i++) {
+                        int16_t d = 0;
+                        memcpy(&d, &payload[6 + i * 2], 2);
+                        durations.push_back((int)d);
+                    }
+                    ok = rf_raw_tx_durations(durations, freqMhz);
+                }
+                respBuf[2] = 1;
+                respBuf[3] = ok ? 0x00 : 0x01;
+            } else {
+                respBuf[2] = 1;
+                respBuf[3] = 0xFF;
+            }
+            respLen = 4;
+            break;
+        }
+        case CMD_START_JAM: {
+            // Payload: mode(uint8) + freqMhz(float32)
+            bool ok = false;
+            if (payloadLen >= 5) {
+                uint8_t mode = payload[0];
+                float freqMhz = 0;
+                memcpy(&freqMhz, &payload[1], 4);
+                if (mode <= (uint8_t)RfJamMode::SWEEP) { ok = rfService.startJam((RfJamMode)mode, freqMhz); }
+            }
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
+        case CMD_START_BRUTEFORCE: {
+            // Payload: protoIdx(uint8) + bits(uint8, 0=default) + freqMhz(float32) + repeat(uint8)
+            bool ok = false;
+            if (payloadLen >= 7) {
+                uint8_t protoIdx = payload[0];
+                uint8_t bits = payload[1];
+                float freqMhz = 0;
+                memcpy(&freqMhz, &payload[2], 4);
+                uint8_t repeat = payload[6];
+                const RfProtocolDef *def = rf_protocol_at(protoIdx);
+                if (def) { ok = rfService.startBruteforce(def, bits, freqMhz, repeat ? repeat : 1); }
+            }
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
             respLen = 4;
             break;
         }
@@ -209,6 +314,43 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
             doc["status"] = ok ? "ok" : "error";
             doc["cmd"] = "subghz listen";
             doc["active"] = (rfService.getState() == RfState::LISTEN);
+        } else if (lowerSub.startsWith("sweep")) {
+            // subghz sweep [start_mhz] [end_mhz] [step_mhz]
+            String args = subCmd.substring(5);
+            args.trim();
+            float startF = 300.0f, endF = 928.0f, stepF = 1.0f;
+
+            std::vector<String> tokens;
+            int start = 0;
+            while (start < (int)args.length()) {
+                int nextSpace = args.indexOf(' ', start);
+                if (nextSpace < 0) {
+                    tokens.push_back(args.substring(start));
+                    break;
+                }
+                tokens.push_back(args.substring(start, nextSpace));
+                start = nextSpace + 1;
+                while (start < (int)args.length() && args[start] == ' ') start++;
+            }
+
+            if (tokens.size() >= 1) startF = tokens[0].toFloat();
+            if (tokens.size() >= 2) endF = tokens[1].toFloat();
+            if (tokens.size() >= 3) stepF = tokens[2].toFloat();
+
+            bool ok = rfService.startSpectrumSweep(startF, endF, stepF);
+            doc["status"] = ok ? "ok" : "error";
+            doc["cmd"] = "subghz sweep";
+            doc["start_freq"] = startF;
+            doc["end_freq"] = endF;
+            doc["step_mhz"] = stepF;
+        } else if (lowerSub.startsWith("rssi")) {
+            String valStr = subCmd.substring(4);
+            valStr.trim();
+            float freqMhz = valStr.length() > 0 ? valStr.toFloat() : cc1101Driver.getFrequency();
+            bool ok = rfService.startSpectrumFixed(freqMhz);
+            doc["status"] = ok ? "ok" : "error";
+            doc["cmd"] = "subghz rssi";
+            doc["freq"] = freqMhz;
         } else if (lowerSub.startsWith("txp ")) {
             // subghz txp <proto> <freq_hz> <bits> <key_hex> [te] [repeat]
             String args = subCmd.substring(4);
@@ -271,6 +413,106 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
             doc["freq"] = cc1101Driver.getFrequency();
             doc["rssi"] = cc1101Driver.getRssi();
             doc["rmt_rx"] = rfSignalEngine.isRxActive();
+        } else if (lowerSub.startsWith("jam ") || lowerSub == "jam") {
+            // subghz jam <full|itmt|noise|sweep> [freq_mhz_or_hz]
+            String args = (lowerSub == "jam") ? "" : subCmd.substring(4);
+            args.trim();
+            int sp = args.indexOf(' ');
+            String modeStr = (sp < 0) ? args : args.substring(0, sp);
+            String freqStr = (sp < 0) ? "" : args.substring(sp + 1);
+            freqStr.trim();
+            modeStr.toLowerCase();
+
+            RfJamMode mode = RfJamMode::FULL;
+            bool validMode = true;
+            if (modeStr == "full") mode = RfJamMode::FULL;
+            else if (modeStr == "itmt") mode = RfJamMode::ITMT;
+            else if (modeStr == "noise") mode = RfJamMode::NOISE;
+            else if (modeStr == "sweep") mode = RfJamMode::SWEEP;
+            else validMode = false;
+
+            if (validMode) {
+                float freqMhz = freqStr.length() > 0 ? freqStr.toFloat() : cc1101Driver.getFrequency();
+                if (freqMhz > 10000.0f) freqMhz /= 1000000.0f;
+                bool ok = rfService.startJam(mode, freqMhz);
+                doc["status"] = ok ? "ok" : "error";
+                doc["cmd"] = "subghz jam";
+                doc["mode"] = modeStr;
+                doc["freq"] = cc1101Driver.getFrequency();
+            } else {
+                doc["status"] = "error";
+                doc["msg"] = "Unknown jam mode (full|itmt|noise|sweep)";
+            }
+        } else if (lowerSub.startsWith("brute ")) {
+            // subghz brute <proto> [bits] [freq_mhz_or_hz] [repeat]
+            String args = subCmd.substring(6);
+            args.trim();
+
+            std::vector<String> tokens;
+            int start = 0;
+            while (start < (int)args.length()) {
+                int nextSpace = args.indexOf(' ', start);
+                if (nextSpace < 0) {
+                    tokens.push_back(args.substring(start));
+                    break;
+                }
+                tokens.push_back(args.substring(start, nextSpace));
+                start = nextSpace + 1;
+                while (start < (int)args.length() && args[start] == ' ') start++;
+            }
+
+            if (tokens.size() >= 1) {
+                const RfProtocolDef *def = rf_find_protocol(tokens[0]);
+                int bits = (tokens.size() >= 2) ? tokens[1].toInt() : 0;
+                float freqMhz = (tokens.size() >= 3) ? tokens[2].toFloat() : cc1101Driver.getFrequency();
+                if (freqMhz > 10000.0f) freqMhz /= 1000000.0f;
+                int repeat = (tokens.size() >= 4) ? tokens[3].toInt() : 1;
+
+                if (def) {
+                    bool ok = rfService.startBruteforce(def, bits, freqMhz, repeat);
+                    doc["status"] = ok ? "ok" : "error";
+                    doc["cmd"] = "subghz brute";
+                    doc["proto"] = def->name;
+                    doc["bits"] = bits ? bits : def->bits;
+                    doc["freq"] = cc1101Driver.getFrequency();
+                } else {
+                    doc["status"] = "error";
+                    doc["msg"] = "Unknown protocol name";
+                }
+            } else {
+                doc["status"] = "error";
+                doc["msg"] = "Invalid brute parameters";
+            }
+        } else if (lowerSub.startsWith("rawtx ")) {
+            // subghz rawtx <freq_mhz_or_hz> <d1> <d2> <d3> ...
+            String args = subCmd.substring(6);
+            args.trim();
+            int sp = args.indexOf(' ');
+            if (sp > 0) {
+                float freqMhz = args.substring(0, sp).toFloat();
+                if (freqMhz > 10000.0f) freqMhz /= 1000000.0f;
+                String rest = args.substring(sp + 1);
+                rest.trim();
+
+                std::vector<int> durations;
+                int start = 0;
+                while (start < (int)rest.length()) {
+                    int nextSpace = rest.indexOf(' ', start);
+                    String tok =
+                        (nextSpace < 0) ? rest.substring(start) : rest.substring(start, nextSpace);
+                    start = (nextSpace < 0) ? rest.length() : nextSpace + 1;
+                    if (tok.length() > 0) durations.push_back(tok.toInt());
+                }
+
+                bool ok = rf_raw_tx_durations(durations, freqMhz);
+                doc["status"] = ok ? "ok" : "error";
+                doc["cmd"] = "subghz rawtx";
+                doc["count"] = (int)durations.size();
+                doc["freq"] = freqMhz;
+            } else {
+                doc["status"] = "error";
+                doc["msg"] = "Invalid rawtx parameters";
+            }
         } else {
             doc["status"] = "error";
             doc["msg"] = "Unknown subghz sub-command";

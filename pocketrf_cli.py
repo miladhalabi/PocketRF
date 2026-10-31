@@ -133,12 +133,18 @@ async def interactive_menu(rf_client):
         print(" [13] Transmit Custom Protocol / Key...")
         print("--------------------------------------------------")
         print(" [14] Frequency Counter / Listener @ 433.92 MHz")
-        print(" [15] Query Device Hardware Status")
+        print(" [15] Live RSSI Fixed Stream @ 433.92 MHz")
+        print(" [16] Sub-GHz Spectrum Waterfall Sweep (300 - 928 MHz)")
+        print(" [17] Query Device Hardware Status")
+        print("--------------------------------------------------")
+        print(" [18] RF Jammer (full/itmt/noise/sweep) @ 433.92 MHz")
+        print(" [19] Bruteforce Fixed-Code Receiver (CAME/Princeton/Nice FLO)")
+        print(" [20] RAW .sub File Replay (Flipper-compatible)")
         print(" [0]  Exit")
         print("==================================================")
 
         try:
-            choice = await loop.run_in_executor(None, input, "Select choice (0-14): ")
+            choice = await loop.run_in_executor(None, input, "Select choice (0-20): ")
             choice = choice.strip()
 
             if choice == "0":
@@ -207,9 +213,103 @@ async def interactive_menu(rf_client):
                 print("\nStopping Listener...")
                 await rf_client.send_cmd("STOP")
             elif choice == "15":
+                print(f"\n==================================================")
+                print(f" 📈 LIVE RSSI STREAM ON 433.92 MHz")
+                print(f" Press Enter or Ctrl+C to return to main menu.")
+                print(f"==================================================")
+                await rf_client.send_cmd("FREQ 433.92")
+                await rf_client.send_cmd("subghz rssi 433.92")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping RSSI Stream...")
+                await rf_client.send_cmd("STOP")
+            elif choice == "16":
+                print(f"\n==================================================")
+                print(f" 🌊 SPECTRUM WATERFALL SWEEP (300.0 - 928.0 MHz)")
+                print(f" Press Enter or Ctrl+C to return to main menu.")
+                print(f"==================================================")
+                await rf_client.send_cmd("subghz sweep 300 928 2")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping Spectrum Sweep...")
+                await rf_client.send_cmd("STOP")
+            elif choice == "17":
                 await rf_client.send_cmd("STATUS")
+            elif choice == "18":
+                mode = await loop.run_in_executor(
+                    None, input, "Jam mode [full/itmt/noise/sweep] (default full): "
+                )
+                mode = mode.strip().lower() or "full"
+                freq = await loop.run_in_executor(
+                    None, input, "Frequency MHz [433.92]: "
+                )
+                freq = freq.strip() or "433.92"
+                print(f"\n==================================================")
+                print(f" \U0001f4e1 RF JAMMER [{mode.upper()}] @ {freq} MHz")
+                print(f" Safety cutoff: 30s max. Press Enter to stop early.")
+                print(f"==================================================")
+                await rf_client.send_cmd(f"subghz jam {mode} {freq}")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping Jammer...")
+                await rf_client.send_cmd("STOP")
+            elif choice == "19":
+                proto = await loop.run_in_executor(
+                    None, input, "Protocol [CAME/Princeton/NICE_FLO] (default CAME): "
+                )
+                proto = proto.strip() or "CAME"
+                freq = await loop.run_in_executor(
+                    None, input, "Frequency MHz [433.92]: "
+                )
+                freq = freq.strip() or "433.92"
+                repeat = await loop.run_in_executor(
+                    None, input, "Repeats per code [1]: "
+                )
+                repeat = repeat.strip() or "1"
+                print(f"\n==================================================")
+                print(f" \U0001f511 BRUTEFORCE [{proto}] @ {freq} MHz")
+                print(f" This can take a long time for wide bit widths.")
+                print(f" Press Enter to stop early.")
+                print(f"==================================================")
+                await rf_client.send_cmd(f"subghz brute {proto} 0 {freq} {repeat}")
+                try:
+                    await loop.run_in_executor(None, sys.stdin.readline)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    pass
+                print("\nStopping Bruteforce...")
+                await rf_client.send_cmd("STOP")
+            elif choice == "20":
+                path = await loop.run_in_executor(
+                    None, input, "Path to .sub file: "
+                )
+                path = path.strip()
+                try:
+                    with open(path, "r") as f:
+                        sub_text = f.read()
+                except OSError as e:
+                    print(f"❌ Could not read file: {e}")
+                    continue
+                payload = ("RAWSUB " + sub_text).encode("utf-8")
+                if len(payload) > 500:
+                    print(
+                        f"⚠️  Payload is {len(payload)} bytes; this exceeds the "
+                        f"negotiated BLE MTU (up to 512) in one write. Large RAW captures "
+                        f"may need the firmware's RAWSUB handling extended with chunking."
+                    )
+                print(f"\n\U0001f4e1 Replaying RAW .sub file: {path}")
+                await rf_client.client.write_gatt_char(
+                    RX_CHAR_UUID,
+                    payload,
+                    response=True,
+                )
             else:
-                print("❌ Invalid selection. Please enter a number between 0 and 15.")
+                print("❌ Invalid selection. Please enter a number between 0 and 20.")
         except (KeyboardInterrupt, EOFError):
             break
 

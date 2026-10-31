@@ -2,9 +2,12 @@
 #define CMD_ROUTER_H
 
 #include "cc1101_driver.h"
+#include "rf_bruteforce.h"
 #include "rf_decoder.h"
 #include "rf_encoder.h"
+#include "rf_jammer.h"
 #include "rf_keeloq.h"
+#include "rf_raw.h"
 #include "rf_registry.h"
 #include "rf_service.h"
 #include "rf_signal_engine.h"
@@ -23,6 +26,10 @@ enum BinaryCmdId : uint8_t {
     CMD_TX_RAW = 0x07,
     CMD_START_LISTEN = 0x08,
     CMD_STOP_ALL = 0x09,
+    CMD_START_SPECTRUM_FIXED = 0x0A,
+    CMD_START_SPECTRUM_SWEEP = 0x0B,
+    CMD_START_JAM = 0x0C,
+    CMD_START_BRUTEFORCE = 0x0D,
 };
 
 class CmdRouter {
@@ -34,6 +41,7 @@ public:
 private:
     void processBinaryFrame(const uint8_t *data, size_t length);
     void processAsciiCommand(const String &cmdStr);
+    void processRawSubCommand(const String &subText);
     uint8_t calculateCrc8(const uint8_t *data, size_t len);
 };
 

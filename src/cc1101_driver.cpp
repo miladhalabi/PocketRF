@@ -170,6 +170,11 @@ bool CC1101Driver::setFrequency(float frequency, bool isTx) {
     return true;
 }
 
+void CC1101Driver::quickTune(float frequency) {
+    m_currentFreq = frequency;
+    ELECHOUSE_cc1101.setMHZ(frequency);
+}
+
 bool CC1101Driver::setRxMode(float frequency) {
     if (!setFrequency(frequency, false)) return false;
 

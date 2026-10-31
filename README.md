@@ -32,7 +32,9 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
   * **Static OOK Protocol Engine:** Princeton, CAME, NICE_FLO, Linear, Clemsa, Mastercode, Ansonic, GateTX, Holtek/HT12, PhoenixV2, and RcSwitch families.
   * **KeeLoq Rolling Code Cipher:** 528-round NLF engine supporting Simple, Normal, Secure, Magic XOR, Pujol, and Erreka learning schemes.
   * **Spectrum / Waterfall Sweeper:** Real-time RSSI channel scanning.
-  * **RF Jammer & Raw Signal Replay:** Continuous/Intermittent TX, hardware PN9 noise generator, and raw timing replay.
+  * **RF Jammer:** Full-power, intermittent, CC1101 PN9 hardware noise, and ±5MHz frequency-sweep modes, with a 30s hard safety cutoff.
+  * **Bruteforce Key Generator:** Enumerates the full keyspace of a fixed-code OOK protocol (CAME 12-bit, Princeton 24-bit, Nice FLO 12-bit, etc.).
+  * **RAW Signal Replay:** Flipper-compatible `.sub` RAW file parser + RMT-precision replay.
 
 ---
 

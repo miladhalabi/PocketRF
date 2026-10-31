@@ -23,6 +23,11 @@ public:
     void applyFixedFreqOokPreset(bool isTx = false);
     void waitForIdle();
 
+    // Quick re-tune with no recalibration pass (ELECHOUSE_cc1101.setMHZ only).
+    // Matches Bruce's jammer sweep (rf_jammer.cpp run_sweep_jammer): fast hops
+    // across many frequencies don't need per-step precise calibration.
+    void quickTune(float frequency);
+
     // Operational Modes
     bool setRxMode(float frequency = DEFAULT_RF_FREQ);
     bool setTxMode(float frequency = DEFAULT_RF_FREQ);
