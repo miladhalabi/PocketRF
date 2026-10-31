@@ -90,7 +90,7 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
 
     switch (cmdId) {
         case CMD_STATUS: {
-            respBuf[2] = 11; // Payload size
+            respBuf[2] = 10; // Payload size (detected+version+partnum+marcstate+freqHz[4]+rssi+rxActive)
             respBuf[3] = cc1101Driver.isDetected() ? 0x01 : 0x00;
             respBuf[4] = cc1101Driver.getVersion();
             respBuf[5] = cc1101Driver.getPartNum();

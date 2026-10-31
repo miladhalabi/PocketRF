@@ -99,7 +99,7 @@ response sent) — the client should apply its own write timeout.
 
 | ID | Name | Request payload | Response payload |
 |----|------|------------------|-------------------|
-| `0x01` | `CMD_STATUS` | *(none)* | `detected`(u8) `version`(u8) `partnum`(u8) `marcstate`(u8) `freqHz`(u32) `rssi`(i8) `rxActive`(u8) — 10 bytes ⚠️ (see note below) |
+| `0x01` | `CMD_STATUS` | *(none)* | `detected`(u8) `version`(u8) `partnum`(u8) `marcstate`(u8) `freqHz`(u32) `rssi`(i8) `rxActive`(u8) — 10 bytes |
 | `0x02` | `CMD_SET_FREQ` | `freqHz`(u32) | `0x00` = ok |
 | `0x03` | `CMD_START_RX` | *(none)* | `0x00`/`0x01` |
 | `0x04` | `CMD_STOP_RX` | *(none)* | `0x00` |
@@ -144,16 +144,6 @@ offset  size  field
 8       1     rssi          (i8, dBm)
 9       1     rxActive      (0/1 — RMT RX session currently running)
 ```
-
-> **⚠️ Known firmware bug:** the response's `PAYLOAD_LEN` byte is hardcoded to
-> `11`, but only 10 payload bytes are actually written (the fields above).
-> The frame itself is self-consistent (the BLE notification's total length is
-> correct, and the CRC covers the real bytes sent) — a client that reads
-> "everything in this notification" and then parses the 10 known fields by
-> fixed offset, like `pocketrf_cli.py` does, is unaffected. A client that
-> strictly trusts the `PAYLOAD_LEN` field to locate the CRC byte will be off
-> by one. Worth fixing in firmware (`cmd_router.cpp`, `CMD_STATUS` case:
-> change `respBuf[2] = 11` to `10`) before anything depends on it.
 
 > **Known caveat:** `detected` only checks `VERSION > 0`. A floating/
 > disconnected SPI bus commonly reads `0xFF` for every register, which also
@@ -344,8 +334,7 @@ def crc8(data: bytes) -> int:
 frame = bytes([0xAA, 0x01, 0x00])       # CMD_STATUS, no payload
 frame += bytes([crc8(frame)])
 await client.write_gatt_char(RX_CHAR_UUID, frame, response=True)
-# response on TX_CHAR_UUID: 0xAA 0x81 0x0B <10 actual payload bytes> <crc8>
-# (note: the 0x0B PAYLOAD_LEN byte itself is off-by-one, see §3.2)
+# response on TX_CHAR_UUID: 0xAA 0x81 0x0A <10 payload bytes> <crc8>
 ```
 
 **ASCII, start RX and transmit a CAME code:**
