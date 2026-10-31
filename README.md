@@ -49,6 +49,8 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
 
 📖 **Full command reference for app/client developers:** [BLE_PROTOCOL.md](BLE_PROTOCOL.md) — every binary and ASCII command, payload layouts, notification types, and worked examples.
 
+📱 **Mobile companion app implementation plan:** [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) — architecture, screen-by-screen feature mapping, data model, and a phased build roadmap.
+
 ---
 
 ## 🔧 Building & Flashing

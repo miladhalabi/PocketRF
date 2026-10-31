@@ -108,7 +108,12 @@ void RfSpectrum::loop() {
             m_currSweepFreq = rf_skip_invalid_gap(m_startFreq);
         }
 
-        // Tune CC1101 to next channel
-        cc1101Driver.setFrequency(m_currSweepFreq, false);
+        // Tune CC1101 to next channel. Uses the full setRxMode() (not just
+        // setFrequency()) so every step gets the warm-up pulse + RX FIFO
+        // flush + an explicit re-arm into RX - setFrequency() alone ends in
+        // SIDLE with nothing putting the radio back into RX before the next
+        // RSSI read, and per the user's hardware testing, listening often
+        // doesn't produce real readings without that warm-up pulse.
+        cc1101Driver.setRxMode(m_currSweepFreq);
     }
 }

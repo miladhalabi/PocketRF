@@ -70,7 +70,11 @@ bool RfScanner::fastScanStep() {
     if (m_idx < 0 || m_idx >= subghz_frequency_count) m_idx = 0;
     float checkFreq = subghz_frequency_list[m_idx];
 
-    cc1101Driver.quickTune(checkFreq);
+    // Full setRxMode() (not just quickTune()) so every probe gets the
+    // warm-up pulse + RX FIFO flush + an explicit re-arm into RX - see the
+    // comment on CC1101Driver::warmUpBeforeRx() for why this matters on
+    // this hardware.
+    cc1101Driver.setRxMode(checkFreq);
     delay(5); // let RSSI settle, matches Bruce's fast_scan() vTaskDelay(5)
     int rssi = cc1101Driver.getRssi();
 
