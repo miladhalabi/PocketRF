@@ -47,6 +47,8 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
   * **RX Characteristic (Write / Write Without Response):** `0000cc12-0000-1000-8000-00805f9b34fb` (Commands from App)
   * **TX Characteristic (Notify / Read):** `0000cc13-0000-1000-8000-00805f9b34fb` (Data/Notifications to App)
 
+📖 **Full command reference for app/client developers:** [BLE_PROTOCOL.md](BLE_PROTOCOL.md) — every binary and ASCII command, payload layouts, notification types, and worked examples.
+
 ---
 
 ## 🔧 Building & Flashing
