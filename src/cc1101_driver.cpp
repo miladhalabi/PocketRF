@@ -65,12 +65,13 @@ uint8_t CC1101Driver::getPartNum() { return ELECHOUSE_cc1101.SpiReadReg(CC1101_P
 
 int CC1101Driver::getRssi() { return ELECHOUSE_cc1101.getRssi(); }
 
-void CC1101Driver::waitForIdle() {
+bool CC1101Driver::waitForIdle() {
     const uint32_t start = millis();
     while ((ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F) != 0x01) {
-        if (millis() - start > 20) break;
+        if (millis() - start > 20) return false;
         delay(1);
     }
+    return true;
 }
 
 uint8_t CC1101Driver::interpolateFsctrl0(
@@ -115,14 +116,23 @@ void CC1101Driver::applyPreciseCalibration(float frequency, bool isTx) {
         ELECHOUSE_cc1101.SpiWriteReg(CC1101_FREND1, 0xB6);
     }
     ELECHOUSE_cc1101.SpiStrobe(CC1101_SCAL);
-    waitForIdle();
+    if (!waitForIdle()) {
+        Serial.printf(
+            "[CC1101] WARNING: Calibration timed out at %.2f MHz - this step's reading may be unreliable.\n",
+            frequency
+        );
+    }
 
     if (highVco) {
         const uint8_t fscal2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_FSCAL2);
         if (fscal2 < 0x20) {
             ELECHOUSE_cc1101.SpiWriteReg(CC1101_FSCAL2, fscal2 + 0x20);
             ELECHOUSE_cc1101.SpiStrobe(CC1101_SCAL);
-            waitForIdle();
+            if (!waitForIdle()) {
+                Serial.printf(
+                    "[CC1101] WARNING: FSCAL2 boost calibration timed out at %.2f MHz.\n", frequency
+                );
+            }
         }
     }
 }
@@ -173,6 +183,14 @@ bool CC1101Driver::setFrequency(float frequency, bool isTx) {
 void CC1101Driver::quickTune(float frequency) {
     m_currentFreq = frequency;
     ELECHOUSE_cc1101.setMHZ(frequency);
+}
+
+void CC1101Driver::quickRetuneForRx(float frequency) {
+    m_currentFreq = frequency;
+    ELECHOUSE_cc1101.setSidle();
+    ELECHOUSE_cc1101.setMHZ(frequency);
+    pinMode(CC1101_GDO0_PIN, INPUT);
+    ELECHOUSE_cc1101.SetRx();
 }
 
 // Observed on real hardware: listening sometimes captures nothing at all

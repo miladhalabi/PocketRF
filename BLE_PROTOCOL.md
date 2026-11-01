@@ -312,7 +312,7 @@ session is running.
 | `raw_pulse` | `subghz rx` / `RMT RX START`, signal captured but not recognized | `count`, `freq`, `rssi`, `durations` (array of signed ints, µs, same sign convention as `CMD_TX_RAW`/`rawtx`), `truncated` (bool) |
 | `listen_pulse` | `subghz listen` / `LISTEN START` | `center_freq`, `pulse_dur_us`, `detected_freq_hz`, `rssi` — throttled to ≤5/sec |
 | `spectrum_fixed` | `subghz rssi` / `CMD_START_SPECTRUM_FIXED` | `freq`, `rssi` — one every ~50ms |
-| `spectrum_sweep` | `subghz sweep` / `CMD_START_SPECTRUM_SWEEP`, one full pass completed | `start_freq`, `end_freq`, `step_mhz`, `count`, `rssi` (array of i8, one per step) |
+| `spectrum_sweep` | `subghz sweep` / `CMD_START_SPECTRUM_SWEEP`, one full pass completed | `start_freq`, `end_freq`, `step_mhz`, `count`, `decimated` (bool), `rssi` (array of i8) — see §5.2 |
 | `jam_done` | A jam session hit its 30s safety cutoff | `reason: "timeout"` |
 | `bruteforce_done` | A bruteforce run exhausted its keyspace | *(none)* |
 | `scan_locked` | `subghz scan`, once an active frequency is found | `freq` |
@@ -337,6 +337,26 @@ care about this. When the real capture is longer than what fit,
 client that needs the complete signal for anything beyond a quick look
 (e.g. to replay it) should treat a truncated capture as incomplete, not
 silently use the partial array as if it were the whole thing.
+
+### 5.2 `rssi` decimation (`spectrum_sweep`)
+
+Same problem as §5.1, different fix. A full sweep pass at the default
+1MHz step produces 280+ samples — also too many to fit in one notification
+— but unlike a RAW capture, cutting off the tail would mean never seeing
+most of the band at all, which defeats the point of a spectrum overview.
+Instead the firmware **downsamples**: when the real pass is longer than
+what fits the negotiated MTU, it keeps every Nth sample (spanning the full
+requested range at reduced resolution) and reports the adjusted effective
+spacing in `step_mhz` (e.g. a requested `1.0` becomes `4.0` if 4x
+downsampling was needed) along with `"decimated": true`. A client
+reconstructing "frequency at sample index i" should use the *returned*
+`step_mhz`, not whatever value it originally requested in `subghz sweep`.
+
+Also worth knowing: the frequency-per-sample mapping is only exactly
+linear within a band. `rf_skip_invalid_gap()` makes the sweep jump straight
+over the CC1101's two hardware-unsupported gaps (350-387MHz, 468-779MHz)
+rather than sampling through them, so a naive `start_freq + i * step_mhz`
+calculation is wrong for any sample index after a gap-jump.
 
 ---
 

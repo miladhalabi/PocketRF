@@ -37,6 +37,8 @@ private:
     unsigned long m_lastSampleTime;
 
     std::vector<int8_t> m_sweepRssiBuffer;
+
+    void sendSweepResult();
 };
 
 extern RfSpectrum rfSpectrum;
