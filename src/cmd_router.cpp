@@ -17,6 +17,46 @@ uint8_t CmdRouter::calculateCrc8(const uint8_t *data, size_t len) {
     return crc;
 }
 
+void CmdRouter::rawChunkBegin(float freqMhz, size_t totalCount) {
+    m_rawChunkBuffer.clear();
+    if (totalCount > RAW_CHUNK_MAX_DURATIONS) totalCount = RAW_CHUNK_MAX_DURATIONS;
+    m_rawChunkBuffer.reserve(totalCount);
+    m_rawChunkFreq = freqMhz;
+    m_rawChunkExpected = totalCount;
+    m_rawChunkActive = true;
+    Serial.printf(
+        "[CMD ROUTER] Raw chunk transfer started: freq=%.2f MHz, expecting %u durations\n",
+        freqMhz,
+        (unsigned int)totalCount
+    );
+}
+
+void CmdRouter::rawChunkAppend(const std::vector<int> &durations) {
+    if (!m_rawChunkActive) return;
+    for (int d : durations) {
+        if (m_rawChunkBuffer.size() >= RAW_CHUNK_MAX_DURATIONS) break; // hard cap, ignore the rest
+        m_rawChunkBuffer.push_back(d);
+    }
+}
+
+bool CmdRouter::rawChunkFinish() {
+    if (!m_rawChunkActive) return false;
+    Serial.printf(
+        "[CMD ROUTER] Raw chunk transfer finished: got %u of %u expected durations\n",
+        (unsigned int)m_rawChunkBuffer.size(),
+        (unsigned int)m_rawChunkExpected
+    );
+    // Transmit with whatever was actually accumulated, even if short of what
+    // was declared - a client that dropped a chunk gets a real (if
+    // incomplete) transmission and an honest count in the log, not a
+    // silently-refused one.
+    bool ok = rf_raw_tx_durations(m_rawChunkBuffer, m_rawChunkFreq);
+    m_rawChunkBuffer.clear();
+    m_rawChunkActive = false;
+    m_rawChunkExpected = 0;
+    return ok;
+}
+
 // Prefix for a full, possibly multi-line, Flipper-style .sub RAW payload.
 // Checked against the raw bytes (not newline-truncated) so embedded '\n'
 // characters inside the .sub text survive, unlike the generic single-line
@@ -262,6 +302,56 @@ void CmdRouter::processBinaryFrame(const uint8_t *data, size_t length) {
             // Payload: rssiThresholdDbm(i8, optional - omit for default -65)
             int threshold = (payloadLen >= 1) ? (int)(int8_t)payload[0] : -65;
             bool ok = rfService.startScan(threshold);
+            respBuf[2] = 1;
+            respBuf[3] = ok ? 0x00 : 0x01;
+            respLen = 4;
+            break;
+        }
+        case CMD_TX_RAW_BEGIN: {
+            // Payload: freqMhz(f32) + totalCount(u16)
+            if (payloadLen >= 6) {
+                float freqMhz = 0;
+                memcpy(&freqMhz, payload, 4);
+                uint16_t totalCount = 0;
+                memcpy(&totalCount, &payload[4], 2);
+                rawChunkBegin(freqMhz, totalCount);
+                respBuf[2] = 1;
+                respBuf[3] = 0x00;
+            } else {
+                respBuf[2] = 1;
+                respBuf[3] = 0xFF;
+            }
+            respLen = 4;
+            break;
+        }
+        case CMD_TX_RAW_CHUNK: {
+            // Payload: durations[N](i16 each), N = payloadLen/2
+            uint16_t accumulated = 0;
+            uint8_t status = 0x00;
+            if (!m_rawChunkActive) {
+                status = 0x01; // no CMD_TX_RAW_BEGIN in progress
+            } else if (payloadLen < 2 || (payloadLen % 2) != 0) {
+                status = 0xFF; // malformed: must be a whole number of i16s
+            } else {
+                std::vector<int> durations;
+                uint16_t count = payloadLen / 2;
+                durations.reserve(count);
+                for (uint16_t i = 0; i < count; i++) {
+                    int16_t d = 0;
+                    memcpy(&d, &payload[i * 2], 2);
+                    durations.push_back((int)d);
+                }
+                rawChunkAppend(durations);
+            }
+            accumulated = (uint16_t)m_rawChunkBuffer.size();
+            respBuf[2] = 3;
+            respBuf[3] = status;
+            memcpy(&respBuf[4], &accumulated, 2);
+            respLen = 6;
+            break;
+        }
+        case CMD_TX_RAW_END: {
+            bool ok = rawChunkFinish();
             respBuf[2] = 1;
             respBuf[3] = ok ? 0x00 : 0x01;
             respLen = 4;
@@ -522,6 +612,61 @@ void CmdRouter::processAsciiCommand(const String &cmdStr) {
                 doc["status"] = "error";
                 doc["msg"] = "Invalid rawtx parameters";
             }
+        } else if (lowerSub.startsWith("rawtx_begin ")) {
+            // subghz rawtx_begin <freq_mhz_or_hz> <total_count>
+            // First step of a chunked raw TX transfer, for a duration list
+            // too long for one write/command line - see rawtx_chunk/
+            // rawtx_end below and BLE_PROTOCOL.md's chunked-transfer section.
+            String args = subCmd.substring(12);
+            args.trim();
+            int sp = args.indexOf(' ');
+            if (sp > 0) {
+                float freqMhz = args.substring(0, sp).toFloat();
+                if (freqMhz > 10000.0f) freqMhz /= 1000000.0f;
+                size_t total = (size_t)args.substring(sp + 1).toInt();
+                rawChunkBegin(freqMhz, total);
+                doc["status"] = "ok";
+                doc["cmd"] = "subghz rawtx_begin";
+                doc["freq"] = freqMhz;
+                doc["expected"] = (int)total;
+            } else {
+                doc["status"] = "error";
+                doc["msg"] = "Invalid rawtx_begin parameters";
+            }
+        } else if (lowerSub.startsWith("rawtx_chunk ")) {
+            // subghz rawtx_chunk <d1> <d2> ... - appends to the buffer
+            // started by rawtx_begin. Can be sent as many times as needed.
+            String rest = subCmd.substring(12);
+            rest.trim();
+
+            std::vector<int> durations;
+            int start = 0;
+            while (start < (int)rest.length()) {
+                int nextSpace = rest.indexOf(' ', start);
+                String tok = (nextSpace < 0) ? rest.substring(start) : rest.substring(start, nextSpace);
+                start = (nextSpace < 0) ? rest.length() : nextSpace + 1;
+                if (tok.length() > 0) durations.push_back(tok.toInt());
+            }
+
+            if (!m_rawChunkActive) {
+                doc["status"] = "error";
+                doc["msg"] = "No rawtx_begin in progress";
+            } else {
+                rawChunkAppend(durations);
+                doc["status"] = "ok";
+                doc["cmd"] = "subghz rawtx_chunk";
+                doc["accumulated"] = (int)m_rawChunkBuffer.size();
+            }
+        } else if (lowerSub == "rawtx_end") {
+            // subghz rawtx_end - transmits everything accumulated since
+            // rawtx_begin and clears the chunk buffer.
+            bool wasActive = m_rawChunkActive;
+            int sentCount = (int)m_rawChunkBuffer.size();
+            bool ok = rawChunkFinish();
+            doc["status"] = wasActive ? (ok ? "ok" : "error") : "error";
+            doc["cmd"] = "subghz rawtx_end";
+            if (!wasActive) doc["msg"] = "No rawtx_begin in progress";
+            else doc["count"] = sentCount;
         } else if (lowerSub == "scan" || lowerSub.startsWith("scan ")) {
             // subghz scan [rssi_threshold_dbm] - auto-sweep 300-928 MHz for an
             // active signal (RSSI above the threshold, default -65), lock on

@@ -113,7 +113,12 @@ response sent) — the client should apply its own write timeout.
 | `0x0C` | `CMD_START_JAM` | `mode`(u8, see §3.1) `freqMhz`(f32) | `0x00`/`0x01` |
 | `0x0D` | `CMD_START_BRUTEFORCE` | `protoIdx`(u8) `bits`(u8, `0`=default) `freqMhz`(f32) `repeat`(u8) | `0x00`/`0x01` |
 | `0x0E` | `CMD_START_SCAN` | `rssiThresholdDbm`(i8, optional — omit for default `-65`) | `0x00`/`0x01` |
+| `0x0F` | `CMD_TX_RAW_BEGIN` | `freqMhz`(f32) `totalCount`(u16) | `0x00`/`0xFF` |
+| `0x10` | `CMD_TX_RAW_CHUNK` | `durations[N]`(i16 each, N = however many fit this write) | `status`(u8: `0x00` ok / `0x01` no BEGIN in progress / `0xFF` malformed) `accumulated`(u16) — 3 bytes |
+| `0x11` | `CMD_TX_RAW_END` | *(none)* | `0x00`/`0x01` |
 | *other* | — | — | `0xFE` = unknown command |
+
+See §4.3.1 for why `CMD_TX_RAW_BEGIN`/`CHUNK`/`END` exist and how to use them.
 
 Response byte values for the simple `0x00`/`0x01` commands: `0x00` = success,
 `0x01` = failed (e.g. invalid protocol index, CC1101 not responding),
@@ -226,10 +231,54 @@ Response: `{"status": "ok"|"error", "cmd": "RAWSUB", ...}`.
 
 **MTU caution:** a single BLE write is capped by the negotiated MTU (up to
 512 bytes). A `.sub` file with hundreds of `RAW_Data` values can exceed that
-in one write — `pocketrf_cli.py` warns about this but does not chunk it. A
-production client sending large RAW captures should either negotiate a large
-enough MTU for the payload or split the write (the firmware does not
-currently support multi-write reassembly for `RAWSUB`).
+in one write, and the firmware does **not** reassemble a `RAWSUB` payload
+split across multiple writes — `pocketrf_cli.py` just warns about this and
+sends it anyway. **For anything that might not fit in one write, don't use
+`RAWSUB` — use the chunked binary transfer instead (§4.3.1).**
+
+#### 4.3.1 Chunked RAW transfer (`CMD_TX_RAW_BEGIN`/`CHUNK`/`END`)
+
+For a duration list too long for one write — whether from importing a large
+`.sub` file or replaying a saved raw capture from a library — don't send the
+raw `.sub` text at all. **Parse the `.sub` text client-side instead** (the
+format is a handful of `Key: value` header lines plus one or more
+`RAW_Data: <space-separated signed ints>` lines — trivial to parse in any
+language) and send the resulting `(frequency, durations[])` pair through
+this chunked binary transfer. This is also exactly the shape a saved RAW
+capture from the signal library already has (see the `durations` field on
+`raw_pulse`/`scan_raw`, §5.1), so **one mechanism covers both "import a
+`.sub` file" and "replay a saved capture"** — there's no need for a second,
+text-based chunking scheme just for `RAWSUB`.
+
+```
+1. CMD_TX_RAW_BEGIN  freqMhz(f32) + totalCount(u16)
+   -> declares the frequency and total duration count, resets the
+      accumulation buffer. totalCount is capped server-side at 2000
+      (RAW_CHUNK_MAX_DURATIONS, matching the RMT capture buffer's own
+      limit) - sending more than that just won't all fit regardless.
+
+2. CMD_TX_RAW_CHUNK  durations[N](i16 each)  -- as many times as needed
+   -> appends N durations to the buffer, where N is however many fit in
+      this write (size it to the negotiated MTU, same as any other
+      payload - up to roughly (peerMtu-3-4)/2 durations per chunk).
+      Response includes `accumulated`: the running total so far - use it
+      to confirm chunks aren't being dropped, there's no separate ack
+      sequence number.
+
+3. CMD_TX_RAW_END  (no payload)
+   -> transmits whatever was accumulated (even if short of the declared
+      totalCount - a dropped chunk still gets a real, if incomplete,
+      transmission rather than silently refusing) and clears the buffer.
+      Same 0x00/0x01 response as CMD_TX_RAW.
+```
+
+A fresh `CMD_TX_RAW_BEGIN` always resets the buffer, so an abandoned
+transfer (client disconnected mid-sequence, forgot to send `END`) doesn't
+need any explicit cleanup — the next `BEGIN` just starts clean.
+
+ASCII equivalents exist for manual testing (`pocketrf_cli.py`-style), same
+three-step shape: `subghz rawtx_begin <freq> <total_count>`, one or more
+`subghz rawtx_chunk <d1> <d2> ...`, then `subghz rawtx_end`.
 
 ### 4.4 Protocol names (`rf_registry`)
 
