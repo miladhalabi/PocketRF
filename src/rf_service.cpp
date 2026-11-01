@@ -17,6 +17,45 @@ void IRAM_ATTR onListenPulseISR() {
     }
 }
 
+// Reports a capture that didn't match any known protocol, including the
+// actual pulse durations (not just a count) so a client can save/replay it
+// as a RAW .sub-style signal - previously only `count` was sent, so a RAW
+// capture's real data never reached BLE at all. Stays within the
+// negotiated MTU: a capture can have hundreds of pulses (RMT buffers up to
+// 1000 symbols = up to 2000 durations), far more than fits in one BLE
+// notification, so this truncates to a conservative worst-case-safe count
+// and flags it with "truncated" rather than risk an oversized/dropped
+// notification.
+static void rf_notify_raw_capture(const char *type, const std::vector<int> &pulses, float freq, int rssi) {
+    JsonDocument doc;
+    doc["type"] = type;
+    doc["count"] = pulses.size();
+    doc["freq"] = freq;
+    doc["rssi"] = rssi;
+
+    uint16_t peerMtu = bleServer.getPeerMTU();
+    // ATT payload is MTU-3; reserve ~80 bytes for the fields above plus the
+    // "durations":[...] wrapper and JSON punctuation.
+    int budget = (int)peerMtu - 3 - 80;
+
+    size_t included = 0;
+    if (budget > 0) {
+        // Worst case a signed duration serializes as 7 bytes ("-32767,");
+        // sizing by that keeps this a single cheap pass with no risk of
+        // building something, measuring it, and having to redo the work.
+        size_t maxCount = (size_t)budget / 7;
+        included = (pulses.size() < maxCount) ? pulses.size() : maxCount;
+
+        JsonArray arr = doc["durations"].to<JsonArray>();
+        for (size_t i = 0; i < included; i++) { arr.add(pulses[i]); }
+    }
+    doc["truncated"] = (included < pulses.size());
+
+    String json;
+    serializeJson(doc, json);
+    bleServer.notifyText(json);
+}
+
 RfService::RfService() : m_state(RfState::IDLE), m_currentFreq(433.92f), m_lastListenNotify(0) {}
 
 void RfService::init() { m_state = RfState::IDLE; }
@@ -136,8 +175,8 @@ void RfService::loop() {
                         }
                     }
 
-                    JsonDocument pulseDoc;
                     if (isDecoded) {
+                        JsonDocument pulseDoc;
                         pulseDoc["type"] = "decoded_rf";
                         pulseDoc["protocol"] = decoded.protocol;
                         pulseDoc["bits"] = decoded.Bit;
@@ -151,16 +190,14 @@ void RfService::loop() {
                             pulseDoc["serial"] = decoded.serial;
                             if (decoded.mf_name != "Generic KeeLoq") pulseDoc["cnt"] = decoded.cnt;
                         }
+                        String pulseJson;
+                        serializeJson(pulseDoc, pulseJson);
+                        bleServer.notifyText(pulseJson);
                     } else {
-                        pulseDoc["type"] = "raw_pulse";
-                        pulseDoc["count"] = capturedPulses.size();
-                        pulseDoc["freq"] = cc1101Driver.getFrequency();
-                        pulseDoc["rssi"] = cc1101Driver.getRssi();
+                        rf_notify_raw_capture(
+                            "raw_pulse", capturedPulses, cc1101Driver.getFrequency(), cc1101Driver.getRssi()
+                        );
                     }
-
-                    String pulseJson;
-                    serializeJson(pulseDoc, pulseJson);
-                    bleServer.notifyText(pulseJson);
                 }
             }
             break;
@@ -268,6 +305,13 @@ void RfService::loop() {
                         String json;
                         serializeJson(doc, json);
                         bleServer.notifyText(json);
+                    } else {
+                        // Previously dropped silently - Scan/Copy's RAW fallback (a
+                        // locked-on signal that doesn't match a known protocol) now
+                        // reports the same way RX_DECODED's raw_pulse does.
+                        rf_notify_raw_capture(
+                            "scan_raw", capturedPulses, rfScanner.getLockedFreq(), cc1101Driver.getRssi()
+                        );
                     }
                 }
             }

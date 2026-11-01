@@ -309,7 +309,7 @@ session is running.
 | `type` | Sent while... | Fields |
 |---|---|---|
 | `decoded_rf` | `subghz rx` / `RMT RX START`, signal recognized | `protocol`, `bits`, `key`(hex string), `te`, `freq`, `rssi`; if `protocol=="KeeLoq"`: `mf_name`, `btn`, `serial`, and `cnt` (only once a keystore match sets `mf_name` to something other than `"Generic KeeLoq"`) |
-| `raw_pulse` | `subghz rx` / `RMT RX START`, signal captured but not recognized | `count` (pulse count), `freq`, `rssi` |
+| `raw_pulse` | `subghz rx` / `RMT RX START`, signal captured but not recognized | `count`, `freq`, `rssi`, `durations` (array of signed ints, µs, same sign convention as `CMD_TX_RAW`/`rawtx`), `truncated` (bool) |
 | `listen_pulse` | `subghz listen` / `LISTEN START` | `center_freq`, `pulse_dur_us`, `detected_freq_hz`, `rssi` — throttled to ≤5/sec |
 | `spectrum_fixed` | `subghz rssi` / `CMD_START_SPECTRUM_FIXED` | `freq`, `rssi` — one every ~50ms |
 | `spectrum_sweep` | `subghz sweep` / `CMD_START_SPECTRUM_SWEEP`, one full pass completed | `start_freq`, `end_freq`, `step_mhz`, `count`, `rssi` (array of i8, one per step) |
@@ -317,11 +317,26 @@ session is running.
 | `bruteforce_done` | A bruteforce run exhausted its keyspace | *(none)* |
 | `scan_locked` | `subghz scan`, once an active frequency is found | `freq` |
 | `scan_decoded` | `subghz scan`, after locking, per captured+decoded signal | Same shape as `decoded_rf` (protocol/bits/key/te/freq/rssi/mf_name/btn/serial/cnt) |
+| `scan_raw` | `subghz scan`, after locking, per captured-but-unrecognized signal | Same shape as `raw_pulse` (count/freq/rssi/durations/truncated) |
 
 A client should parse every TX-characteristic notification, branch on
 `"type"` (treating a missing `"type"` as a command response instead), and
 keep listening — a long-running session (RX, listen, spectrum, scan) can
 produce many notifications before the client sends a `stop`.
+
+### 5.1 `durations` truncation (`raw_pulse`/`scan_raw`)
+
+A capture can have hundreds of pulses (the RMT buffer holds up to 1000
+symbols = up to 2000 durations), far more than fits in one BLE
+notification. The firmware sizes the included `durations` array to the
+*negotiated MTU* (`peerMtu - 3 - 80`, budgeted at a worst-case 7 bytes per
+value), so a larger MTU genuinely gets you more of the capture per
+notification — **negotiate the full 512-byte MTU on connect** (§1) if you
+care about this. When the real capture is longer than what fit,
+`"truncated": true` and `durations` holds only the leading portion; a
+client that needs the complete signal for anything beyond a quick look
+(e.g. to replay it) should treat a truncated capture as incomplete, not
+silently use the partial array as if it were the whole thing.
 
 ---
 
@@ -330,8 +345,11 @@ produce many notifications before the client sends a `stop`.
 The firmware is a single-session state machine (`RfState` in
 `rf_service.h`): starting any new operation implicitly stops whatever was
 running before it (no need to send `stop` first). The states are: `IDLE`,
-`RX_DECODED`, `RX_RAW` *(reserved, not currently exposed over BLE)`*,
-`LISTEN`, `SPECTRUM_FIXED`, `SPECTRUM_SWEEP`, `JAM`, `BRUTEFORCE`, `SCAN`.
+`RX_DECODED`, `RX_RAW` *(reserved, not currently exposed over BLE — there's
+no dedicated "RAW-only" mode; RAW capture instead comes through as the
+`raw_pulse`/`scan_raw` fallback within `RX_DECODED`/`SCAN` whenever a
+signal doesn't match a known protocol, §5.1)*, `LISTEN`, `SPECTRUM_FIXED`,
+`SPECTRUM_SWEEP`, `JAM`, `BRUTEFORCE`, `SCAN`.
 
 `subghz stop` / `STOP` / `CMD_STOP_ALL` (`0x09`) stops whatever is currently
 active and returns to `IDLE`, regardless of which state it was in.
