@@ -358,7 +358,7 @@ session is running.
 | `type` | Sent while... | Fields |
 |---|---|---|
 | `decoded_rf` | `subghz rx` / `RMT RX START`, signal recognized | `protocol`, `bits`, `key`(hex string), `te`, `freq`, `rssi`; if `protocol=="KeeLoq"`: `mf_name`, `btn`, `serial`, and `cnt` (only once a keystore match sets `mf_name` to something other than `"Generic KeeLoq"`) |
-| `raw_pulse` | `subghz rx` / `RMT RX START`, signal captured but not recognized | `count`, `freq`, `rssi`, `durations` (array of signed ints, µs, same sign convention as `CMD_TX_RAW`/`rawtx`), `truncated` (bool) |
+| `raw_pulse` | `subghz rx` / `RMT RX START`, signal captured but not recognized | `part` (`full`/`begin`/`chunk`/`end`) + part-specific fields — see §5.1. `durations` are signed ints, µs, same sign convention as `CMD_TX_RAW`/`rawtx` |
 | `listen_pulse` | `subghz listen` / `LISTEN START` | `center_freq`, `pulse_dur_us`, `detected_freq_hz`, `rssi` — throttled to ≤5/sec |
 | `spectrum_fixed` | `subghz rssi` / `CMD_START_SPECTRUM_FIXED` | `freq`, `rssi` — one every ~50ms |
 | `spectrum_sweep` | `subghz sweep` / `CMD_START_SPECTRUM_SWEEP`, one full pass completed | `start_freq`, `end_freq`, `step_mhz`, `count`, `decimated` (bool), `rssi` (array of i8) — see §5.2 |
@@ -366,26 +366,47 @@ session is running.
 | `bruteforce_done` | A bruteforce run exhausted its keyspace | *(none)* |
 | `scan_locked` | `subghz scan`, once an active frequency is found | `freq` |
 | `scan_decoded` | `subghz scan`, after locking, per captured+decoded signal | Same shape as `decoded_rf` (protocol/bits/key/te/freq/rssi/mf_name/btn/serial/cnt) |
-| `scan_raw` | `subghz scan`, after locking, per captured-but-unrecognized signal | Same shape as `raw_pulse` (count/freq/rssi/durations/truncated) |
+| `scan_raw` | `subghz scan`, after locking, per captured-but-unrecognized signal | Same shape as `raw_pulse` — see §5.1 |
 
 A client should parse every TX-characteristic notification, branch on
 `"type"` (treating a missing `"type"` as a command response instead), and
 keep listening — a long-running session (RX, listen, spectrum, scan) can
 produce many notifications before the client sends a `stop`.
 
-### 5.1 `durations` truncation (`raw_pulse`/`scan_raw`)
+### 5.1 Chunked delivery (`raw_pulse`/`scan_raw`)
 
 A capture can have hundreds of pulses (the RMT buffer holds up to 1000
 symbols = up to 2000 durations), far more than fits in one BLE
-notification. The firmware sizes the included `durations` array to the
-*negotiated MTU* (`peerMtu - 3 - 80`, budgeted at a worst-case 7 bytes per
-value), so a larger MTU genuinely gets you more of the capture per
-notification — **negotiate the full 512-byte MTU on connect** (§1) if you
-care about this. When the real capture is longer than what fit,
-`"truncated": true` and `durations` holds only the leading portion; a
-client that needs the complete signal for anything beyond a quick look
-(e.g. to replay it) should treat a truncated capture as incomplete, not
-silently use the partial array as if it were the whole thing.
+notification. Every `raw_pulse`/`scan_raw` message carries a `"part"`
+field:
+
+- **`"part": "full"`** — the whole capture fit in one notification. Fields:
+  `count`, `freq`, `rssi`, `durations` (the complete array). This is the
+  common case.
+- **`"part": "begin"`** — too large for one notification; this declares the
+  true total before any data. Fields: `total_count`, `freq`, `rssi`.
+- **`"part": "chunk"`** (one or more) — Fields: `offset`, `durations` (this
+  chunk's slice). Reassemble by placing `durations` at `offset` in a buffer
+  of length `total_count`.
+- **`"part": "end"`** — Fields: `total_count`. Signals the capture is
+  complete; by this point `offset + len(durations)` across all chunks
+  should sum to `total_count`.
+
+A chunk's size is budgeted against the *negotiated MTU*
+(`peerMtu - 3 - 80`, worst-case 7 bytes/value) — **negotiate the full
+512-byte MTU on connect** (§1) for fewer, larger chunks. Only one chunked
+capture can be "in flight" at a time: a new capture that needs chunking
+while an earlier one is still sending replaces it (the earlier, incomplete
+one is abandoned, no `"end"` for it) — this is a best-effort live stream,
+same as every other unsolicited notification in this protocol, not a
+guaranteed-delivery channel. A client should track `total_count` vs. bytes
+actually reassembled and treat a capture it never saw `"end"` for as
+incomplete/abandoned rather than silently trusting a partial result.
+
+(This mirrors `CMD_TX_RAW_BEGIN`/`CHUNK`/`END`, §4.3.1, for the opposite
+direction — same `begin`/`chunk(s)`/`end` shape, just unsolicited
+notifications instead of commands, since the firmware is the one sending a
+large payload here rather than receiving one.)
 
 ### 5.2 `rssi` decimation (`spectrum_sweep`)
 

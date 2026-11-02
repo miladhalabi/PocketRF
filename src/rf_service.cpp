@@ -17,43 +17,131 @@ void IRAM_ATTR onListenPulseISR() {
     }
 }
 
+// Confirmed empirically (not a timing/delay issue - tested delays up to
+// 500ms between calls, all failed the same way): two or more
+// setValue()+notify() calls made within the SAME synchronous call stack
+// silently lose everything but the last one, regardless of how long a
+// delay() separates them. A single notification sent in isolation (nothing
+// else queued in that call chain) is delivered reliably every time - as is
+// a notification that is each a direct response to its own separate
+// incoming BLE write (confirmed working for CMD_TX_RAW_BEGIN/CHUNK/END,
+// each one a response to a distinct write from the client). The common
+// thread: what's reliable is one notification per top-level call into the
+// BLE stack (one write-triggered callback, one RfService::loop() tick) -
+// not how much time is spent waiting inside that same call.
+//
+// So a capture too large for one notification can't be sent as a tight
+// begin+chunk+...+end burst from a single function call, however it's
+// paced internally. Instead, `rf_queue_raw_capture()` only *prepares* the
+// chunked send; `rf_pending_capture_tick()` sends exactly one message per
+// call and must be invoked once per RfService::loop() iteration (a
+// separate call stack each time, like the proven-reliable patterns above).
+struct PendingCaptureState {
+    bool active = false;
+    String type;
+    std::vector<int> pulses;
+    float freq = 0;
+    int rssi = 0;
+    size_t maxPerMsg = 0;
+    size_t nextChunk = 0; // 0 = send "begin" next, 1..numChunks = that chunk, numChunks+1 = send "end"
+};
+static PendingCaptureState g_pendingCapture;
+
 // Reports a capture that didn't match any known protocol, including the
 // actual pulse durations (not just a count) so a client can save/replay it
 // as a RAW .sub-style signal - previously only `count` was sent, so a RAW
-// capture's real data never reached BLE at all. Stays within the
-// negotiated MTU: a capture can have hundreds of pulses (RMT buffers up to
-// 1000 symbols = up to 2000 durations), far more than fits in one BLE
-// notification, so this truncates to a conservative worst-case-safe count
-// and flags it with "truncated" rather than risk an oversized/dropped
-// notification.
-static void rf_notify_raw_capture(const char *type, const std::vector<int> &pulses, float freq, int rssi) {
-    JsonDocument doc;
-    doc["type"] = type;
-    doc["count"] = pulses.size();
-    doc["freq"] = freq;
-    doc["rssi"] = rssi;
+// capture's real data never reached BLE at all.
+//
+// A capture can have hundreds of pulses (RMT buffers up to 1000 symbols =
+// up to 2000 durations), more than fits in one BLE notification. One that
+// fits is sent immediately as a single message, `"part": "full"` (the
+// reliable single-notification case, see above). One that doesn't is
+// queued for `rf_pending_capture_tick()` to drain: `"part": "begin"`
+// (declares the true total count up front), one or more `"part": "chunk"`
+// (durations + their starting offset), then `"part": "end"` - mirroring
+// the CMD_TX_RAW_BEGIN/CHUNK/END shape already used for the opposite
+// (app->device) direction, so a client reassembles the complete capture
+// instead of ever receiving a silently-truncated partial one.
+//
+// Only one chunked send can be in flight at a time; a new capture that
+// needs chunking while an earlier one is still draining replaces it (the
+// earlier, incomplete one is dropped) - consistent with this being a
+// best-effort live stream, same as every other RfService notification.
+static void rf_queue_raw_capture(const char *type, const std::vector<int> &pulses, float freq, int rssi) {
+    size_t total = pulses.size();
 
     uint16_t peerMtu = bleServer.getPeerMTU();
-    // ATT payload is MTU-3; reserve ~80 bytes for the fields above plus the
+    // ATT payload is MTU-3; reserve ~80 bytes for the other fields plus the
     // "durations":[...] wrapper and JSON punctuation.
     int budget = (int)peerMtu - 3 - 80;
+    // Worst case a signed duration serializes as 7 bytes ("-32767,").
+    size_t maxPerMsg = (budget > 0) ? (size_t)budget / 7 : 0;
 
-    size_t included = 0;
-    if (budget > 0) {
-        // Worst case a signed duration serializes as 7 bytes ("-32767,");
-        // sizing by that keeps this a single cheap pass with no risk of
-        // building something, measuring it, and having to redo the work.
-        size_t maxCount = (size_t)budget / 7;
-        included = (pulses.size() < maxCount) ? pulses.size() : maxCount;
-
+    if (maxPerMsg > 0 && total <= maxPerMsg) {
+        // Fits in one notification - send immediately, no chunking state needed.
+        JsonDocument doc;
+        doc["type"] = type;
+        doc["part"] = "full";
+        doc["count"] = total;
+        doc["freq"] = freq;
+        doc["rssi"] = rssi;
         JsonArray arr = doc["durations"].to<JsonArray>();
-        for (size_t i = 0; i < included; i++) { arr.add(pulses[i]); }
+        for (int d : pulses) { arr.add(d); }
+        String json;
+        serializeJson(doc, json);
+        bleServer.notifyText(json);
+        return;
     }
-    doc["truncated"] = (included < pulses.size());
+
+    // Too large (or MTU too small for even one duration): queue a chunked
+    // send for rf_pending_capture_tick() to drain one message per call.
+    g_pendingCapture.active = true;
+    g_pendingCapture.type = type;
+    g_pendingCapture.pulses = pulses;
+    g_pendingCapture.freq = freq;
+    g_pendingCapture.rssi = rssi;
+    g_pendingCapture.maxPerMsg = maxPerMsg; // may be 0 - begin/end still convey total_count
+    g_pendingCapture.nextChunk = 0;
+}
+
+// Sends at most one message of a queued chunked capture report. Call once
+// per RfService::loop() iteration regardless of RfState - this is
+// independent of whatever RF operation is currently active.
+static void rf_pending_capture_tick() {
+    if (!g_pendingCapture.active) return;
+
+    size_t total = g_pendingCapture.pulses.size();
+    size_t numChunks = (g_pendingCapture.maxPerMsg > 0)
+                            ? (total + g_pendingCapture.maxPerMsg - 1) / g_pendingCapture.maxPerMsg
+                            : 0;
+
+    JsonDocument doc;
+    doc["type"] = g_pendingCapture.type;
+
+    if (g_pendingCapture.nextChunk == 0) {
+        doc["part"] = "begin";
+        doc["total_count"] = total;
+        doc["freq"] = g_pendingCapture.freq;
+        doc["rssi"] = g_pendingCapture.rssi;
+    } else if (g_pendingCapture.nextChunk <= numChunks) {
+        size_t chunkIdx = g_pendingCapture.nextChunk - 1;
+        size_t offset = chunkIdx * g_pendingCapture.maxPerMsg;
+        size_t n = (total - offset < g_pendingCapture.maxPerMsg) ? (total - offset)
+                                                                  : g_pendingCapture.maxPerMsg;
+        doc["part"] = "chunk";
+        doc["offset"] = offset;
+        JsonArray arr = doc["durations"].to<JsonArray>();
+        for (size_t i = 0; i < n; i++) { arr.add(g_pendingCapture.pulses[offset + i]); }
+    } else {
+        doc["part"] = "end";
+        doc["total_count"] = total;
+        g_pendingCapture.active = false; // this is the last message
+    }
 
     String json;
     serializeJson(doc, json);
     bleServer.notifyText(json);
+    g_pendingCapture.nextChunk++;
 }
 
 RfService::RfService() : m_state(RfState::IDLE), m_currentFreq(433.92f), m_lastListenNotify(0) {}
@@ -153,6 +241,10 @@ bool RfService::startScan(int rssiThresholdDbm) {
 }
 
 void RfService::loop() {
+    // Drains at most one message of a queued chunked capture report per
+    // call, independent of the current RfState - see rf_pending_capture_tick().
+    rf_pending_capture_tick();
+
     switch (m_state) {
         case RfState::IDLE: break;
 
@@ -194,7 +286,7 @@ void RfService::loop() {
                         serializeJson(pulseDoc, pulseJson);
                         bleServer.notifyText(pulseJson);
                     } else {
-                        rf_notify_raw_capture(
+                        rf_queue_raw_capture(
                             "raw_pulse", capturedPulses, cc1101Driver.getFrequency(), cc1101Driver.getRssi()
                         );
                     }
@@ -309,7 +401,7 @@ void RfService::loop() {
                         // Previously dropped silently - Scan/Copy's RAW fallback (a
                         // locked-on signal that doesn't match a known protocol) now
                         // reports the same way RX_DECODED's raw_pulse does.
-                        rf_notify_raw_capture(
+                        rf_queue_raw_capture(
                             "scan_raw", capturedPulses, rfScanner.getLockedFreq(), cc1101Driver.getRssi()
                         );
                     }
