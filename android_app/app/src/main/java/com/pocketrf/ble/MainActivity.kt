@@ -106,7 +106,6 @@ fun PocketRfApp(viewModel: PocketRfViewModel, onConnectRequested: () -> Unit) {
                 onNavigate = { navController.navigate(it) },
                 onReplayPinned = viewModel::replaySignal,
                 onUnpin = viewModel::toggleFavorite,
-                onRenamePinned = viewModel::renameSignal,
                 onReorderPinned = viewModel::reorderPinnedKeys,
             )
         }

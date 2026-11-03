@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -30,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -100,11 +101,14 @@ fun PressableOutlinedButton(
  * replaying is a single obvious tap. Used by the Library, the live capture
  * log, and the Keys grid.
  *
- * Built from primitives rather than Material3's `Button` — on at least one
- * test device, "Replay" rendered as two disconnected glyph fragments inside
- * `Button`'s content slot regardless of color/contrast/enabled state (the
- * same text renders correctly everywhere else in the app), which pointed at
- * Button's own text layer rather than anything this composable controls.
+ * Built from primitives rather than Material3's `Button` — a hardcoded
+ * parent height elsewhere silently clipped Button's content on one test
+ * device, and these primitives make that failure mode impossible to hit by
+ * accident (no surface/shadow stack hiding a clipped child).
+ *
+ * The play icon sits in its own nested circular chip flush with the pill's
+ * trailing edge, rather than inline with the text — a "button-in-button"
+ * that reads as one more deliberate control instead of an icon glued on.
  */
 @Composable
 fun QuickReplayButton(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -114,9 +118,10 @@ fun QuickReplayButton(enabled: Boolean, onClick: () -> Unit, modifier: Modifier 
 
     val containerColor = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
     val contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val chipColor = if (enabled) contentColor.copy(alpha = 0.18f) else contentColor.copy(alpha = 0.12f)
 
     Row(
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
@@ -128,10 +133,17 @@ fun QuickReplayButton(enabled: Boolean, onClick: () -> Unit, modifier: Modifier 
                 enabled = enabled,
                 onClick = onClick,
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
     ) {
-        Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = contentColor, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
         Text("Replay", style = MaterialTheme.typography.labelLarge, color = contentColor)
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(chipColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = contentColor, modifier = Modifier.size(14.dp))
+        }
     }
 }

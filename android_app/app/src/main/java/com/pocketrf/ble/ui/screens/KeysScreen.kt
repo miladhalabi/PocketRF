@@ -1,7 +1,17 @@
 package com.pocketrf.ble.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +24,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,12 +35,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddCircleOutline
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Radar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
@@ -47,21 +61,24 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketrf.ble.library.SavedSignal
-import com.pocketrf.ble.ui.common.QuickReplayButton
 import com.pocketrf.ble.ui.common.SignalCardShape
 import com.pocketrf.ble.ui.theme.EventDecoded
 import com.pocketrf.ble.ui.theme.EventRaw
 import kotlin.math.roundToInt
 
 private val GridColumns = 2
-private val CardHeight = 130.dp
+// A compact, single-row card (icon + name) — must still fit the unpin "x" in
+// the corner. A Card's fixed height clips overflow silently if this is ever
+// too short for its content.
+private val CardHeight = 78.dp
 private val QuickAccessCardHeight = 92.dp
 private val GridSpacing = 10.dp
-// How far a long-press can drift and still count as "didn't move" -> unpin, not reorder.
+// How far a long-press-then-drag must travel before it counts as a reorder
+// rather than a cancelled long-press (which does nothing — a plain tap
+// already replays, see KeyCard).
 private val TapSlop = 12.dp
 
 @Composable
@@ -72,13 +89,28 @@ fun KeysScreen(
     onNavigateFixedRx: () -> Unit,
     onReplay: (SavedSignal) -> Unit,
     onUnpin: (SavedSignal) -> Unit,
-    onLabelClick: (SavedSignal) -> Unit,
     onReorder: (List<Long>) -> Unit,
 ) {
+    // "Jiggle mode", like the iPhone home screen: a drag on any pinned card
+    // enters it (every card starts wiggling and shows its unpin "x"); it
+    // persists across drags until Done is tapped or the page's empty space is.
+    var editMode by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
+            .let {
+                if (editMode) {
+                    it.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { editMode = false },
+                    )
+                } else {
+                    it
+                }
+            }
             .padding(bottom = 24.dp),
     ) {
         Row(
@@ -93,12 +125,29 @@ fun KeysScreen(
         if (pinnedSignals.isEmpty()) {
             KeysEmptyState()
         } else {
+            AnimatedVisibility(visible = editMode) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text(
+                        "Done",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { editMode = false },
+                            )
+                            .padding(bottom = 10.dp),
+                    )
+                }
+            }
             ReorderableKeyGrid(
                 signals = pinnedSignals,
                 replayEnabled = replayEnabled,
+                editMode = editMode,
+                onEnterEditMode = { editMode = true },
                 onReplay = onReplay,
                 onUnpin = onUnpin,
-                onLabelClick = onLabelClick,
                 onReorder = onReorder,
             )
             if (pinnedSignals.size < 4) {
@@ -190,10 +239,18 @@ private fun KeysEmptyState() {
     }
 }
 
+// How far a drag must travel before it flips jiggle mode on — deliberately
+// smaller than TapSlop, so jiggle starts the moment real movement begins
+// rather than waiting for a full reorder-committing drag. Keeping this
+// decoupled from the clickable's own tap-vs-drag slop check is what avoids a
+// long-press-then-release-without-moving from *also* firing a replay: if the
+// finger never moves this far, editMode never flips and the plain `clickable`
+// on KeyCard is the only thing that reacts, exactly like an ordinary tap.
+private val JiggleStartSlop = 4.dp
+
 /**
  * A 2-column, non-lazy grid (pinned-key counts are small — no virtualization
- * needed) that supports long-press drag reorder with haptic feedback, and
- * treats a long-press that never crosses [TapSlop] as "unpin" instead.
+ * needed) that supports long-press drag reorder with haptic feedback.
  * Reorder math works in grid-cell units (row/col deltas from measured
  * container width + the fixed card height), not exact pixel hit-testing —
  * simpler and good enough for a handful of cards.
@@ -203,9 +260,10 @@ private fun KeysEmptyState() {
 private fun ReorderableKeyGrid(
     signals: List<SavedSignal>,
     replayEnabled: Boolean,
+    editMode: Boolean,
+    onEnterEditMode: () -> Unit,
     onReplay: (SavedSignal) -> Unit,
     onUnpin: (SavedSignal) -> Unit,
-    onLabelClick: (SavedSignal) -> Unit,
     onReorder: (List<Long>) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -217,10 +275,24 @@ private fun ReorderableKeyGrid(
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragDistance by remember { mutableStateOf(0f) }
 
+    val jiggleAngle: Float = if (editMode) {
+        val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+        val angle by infiniteTransition.animateFloat(
+            initialValue = -1f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(130, easing = LinearEasing), RepeatMode.Reverse),
+            label = "jiggleAngle",
+        )
+        angle
+    } else {
+        0f
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val cellWidthPx = with(density) { (maxWidth / GridColumns).toPx() }
         val cellHeightPx = with(density) { (CardHeight + GridSpacing).toPx() }
         val tapSlopPx = with(density) { TapSlop.toPx() }
+        val jiggleStartSlopPx = with(density) { JiggleStartSlop.toPx() }
 
         Column(verticalArrangement = Arrangement.spacedBy(GridSpacing)) {
             order.chunked(GridColumns).forEachIndexed { rowIndex, rowIds ->
@@ -234,7 +306,8 @@ private fun ReorderableKeyGrid(
                             signal = signal,
                             replayEnabled = replayEnabled,
                             onReplay = { onReplay(signal) },
-                            onLabelClick = { onLabelClick(signal) },
+                            onUnpin = { onUnpin(signal) },
+                            showUnpin = editMode,
                             modifier = Modifier
                                 .weight(1f)
                                 .graphicsLayer {
@@ -244,6 +317,8 @@ private fun ReorderableKeyGrid(
                                         scaleX = 1.04f
                                         scaleY = 1.04f
                                         shadowElevation = 12f
+                                    } else if (editMode) {
+                                        rotationZ = jiggleAngle * (if (index % 2 == 0) 1f else -1f)
                                     }
                                 }
                                 .pointerInput(id) {
@@ -252,12 +327,16 @@ private fun ReorderableKeyGrid(
                                             draggedId = id
                                             dragOffset = Offset.Zero
                                             dragDistance = 0f
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         },
                                         onDrag = { change, amount ->
                                             change.consume()
                                             dragOffset += amount
                                             dragDistance += amount.getDistance()
+
+                                            if (!editMode && dragDistance >= jiggleStartSlopPx) {
+                                                onEnterEditMode()
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            }
 
                                             val colDelta = (dragOffset.x / cellWidthPx).roundToInt()
                                             val rowDelta = (dragOffset.y / cellHeightPx).roundToInt()
@@ -272,9 +351,7 @@ private fun ReorderableKeyGrid(
                                             }
                                         },
                                         onDragEnd = {
-                                            if (dragDistance < tapSlopPx) {
-                                                onUnpin(signal)
-                                            } else {
+                                            if (dragDistance >= tapSlopPx) {
                                                 onReorder(order)
                                             }
                                             draggedId = null
@@ -296,51 +373,70 @@ private fun ReorderableKeyGrid(
     }
 }
 
+/**
+ * A plain, flat list-style card — icon and name in one row, native ripple on
+ * tap. Tapping anywhere on the card replays it; there's no separate button.
+ * The unpin "x" only appears in jiggle/edit mode (see [ReorderableKeyGrid]),
+ * fading and scaling in like the iPhone home screen's delete badges.
+ */
 @Composable
 private fun KeyCard(
     signal: SavedSignal,
     replayEnabled: Boolean,
     onReplay: () -> Unit,
-    onLabelClick: () -> Unit,
+    onUnpin: () -> Unit,
+    showUnpin: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val accent = if (signal.isRaw) EventRaw else EventDecoded
     val icon = if (signal.isRaw) Icons.Outlined.GraphicEq else Icons.Outlined.Key
-    Card(
-        shape = SignalCardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = modifier.height(CardHeight),
+
+    Box(
+        modifier = modifier
+            .height(CardHeight)
+            .clip(SignalCardShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = replayEnabled, onClick = onReplay),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(start = 14.dp, end = 36.dp)
+                .alpha(if (replayEnabled) 1f else 0.5f),
+        ) {
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
                 signal.label,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClick = onLabelClick),
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                if (signal.isRaw) "RAW ${signal.rawDurations?.size ?: 0}p" else "${signal.protocol} ${signal.bits}b",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
-            QuickReplayButton(enabled = replayEnabled, onClick = onReplay, modifier = Modifier.fillMaxWidth())
+        }
+        AnimatedVisibility(
+            visible = showUnpin,
+            enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.6f, animationSpec = tween(160)),
+            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.6f, animationSpec = tween(120)),
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) {
+            IconButton(onClick = onUnpin, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Unpin from Keys",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
         }
     }
 }
