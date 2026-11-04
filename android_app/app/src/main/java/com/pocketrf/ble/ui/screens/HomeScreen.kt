@@ -3,9 +3,12 @@ package com.pocketrf.ble.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.BluetoothSearching
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -41,13 +45,20 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import com.pocketrf.ble.ble.ConnState
 import com.pocketrf.ble.ble.RfStatus
@@ -57,6 +68,7 @@ import com.pocketrf.ble.ui.common.PressableFilledButton
 import com.pocketrf.ble.ui.common.PressableOutlinedButton
 import com.pocketrf.ble.ui.common.StatusIndicator
 import com.pocketrf.ble.ui.common.StatusSection
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class MenuEntry(val route: String, val label: String, val sublabel: String, val icon: ImageVector)
@@ -167,6 +179,7 @@ fun HomeScreen(
 }
 
 private val HomeSidePadding = 20.dp
+private val MenuRowShape = RoundedCornerShape(14.dp)
 
 @Composable
 private fun PageDots(pageCount: Int, currentPage: Int) {
@@ -199,13 +212,61 @@ private fun MenuPage(onNavigate: (String) -> Unit) {
     }
 }
 
+// How long a tapped row stays highlighted before navigating. Without it the
+// press is invisible: inside a scrollable list the press indication is held
+// back until Compose knows it isn't a scroll, and the screen transition
+// starts fading Home out before a ripple could draw.
+private const val MenuTapFeedbackMs = 110L
+// The highlight extends this far past the row's content on each side, so the
+// icon and text don't sit flush against its rounded edge.
+private val MenuRowHighlightBleed = 12.dp
+
 @Composable
 private fun MenuRow(entry: MenuEntry, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    var navigating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val active = pressed || navigating
+
+    val highlight by animateColorAsState(
+        if (active) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent,
+        tween(if (active) 60 else 220),
+        label = "menuRowHighlight",
+    )
+    val scale by animateFloatAsState(
+        if (active) 0.98f else 1f,
+        tween(if (active) 60 else 220),
+        label = "menuRowScale",
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 14.dp),
+            .layout { measurable, constraints ->
+                val bleed = MenuRowHighlightBleed.roundToPx()
+                val placeable = measurable.measure(
+                    constraints.copy(
+                        minWidth = constraints.minWidth + bleed * 2,
+                        maxWidth = constraints.maxWidth + bleed * 2,
+                    ),
+                )
+                layout(placeable.width - bleed * 2, placeable.height) { placeable.place(-bleed, 0) }
+            }
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(MenuRowShape)
+            .background(highlight)
+            .clickable(interactionSource = interactionSource, indication = ripple()) {
+                // Also swallows a double-tap that would push the screen twice.
+                if (navigating) return@clickable
+                navigating = true
+                scope.launch {
+                    delay(MenuTapFeedbackMs)
+                    onClick()
+                    navigating = false
+                }
+            }
+            .padding(horizontal = MenuRowHighlightBleed, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(entry.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
