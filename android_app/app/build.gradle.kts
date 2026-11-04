@@ -18,7 +18,15 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Signed with the local debug key so release builds install for
+            // on-device testing; swap in a real signing config before sharing.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
