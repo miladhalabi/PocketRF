@@ -35,7 +35,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="PocketRF"
         android:theme="@style/Theme.PocketRF"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".MainActivity"
