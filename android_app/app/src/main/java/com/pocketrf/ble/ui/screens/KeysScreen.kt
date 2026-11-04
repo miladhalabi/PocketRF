@@ -70,9 +70,13 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.pocketrf.ble.library.SavedSignal
 import com.pocketrf.ble.ui.common.SignalCardShape
@@ -84,7 +88,17 @@ private val GridColumns = 2
 // A compact, single-row card (icon + name) — must still fit the unpin "x" in
 // the corner. A Card's fixed height clips overflow silently if this is ever
 // too short for its content.
+// Minimum height; cards grow (all together, see ReorderableKeyGrid) when a
+// label wraps past what fits in this.
 private val CardHeight = 78.dp
+// KeyCard's horizontal layout, shared with the grid so it can measure each
+// label at exactly the width the card will give it.
+private val CardPaddingStart = 14.dp
+private val CardPaddingEnd = 28.dp // keeps clear of the edit-mode unpin "x"
+private val CardPaddingVertical = 14.dp
+private val CardIconSize = 38.dp
+private val CardIconGap = 12.dp
+private const val CardLabelMaxLines = 3
 private val QuickAccessCardHeight = 92.dp
 private val GridSpacing = 10.dp
 
@@ -326,12 +340,32 @@ private fun ReorderableKeyGrid(
     }
 
     val rows = (order.size + GridColumns - 1) / GridColumns
-    val gridHeight = CardHeight * rows + GridSpacing * (rows - 1).coerceAtLeast(0)
+    val labelStyle = keyLabelStyle()
+    val textMeasurer = rememberTextMeasurer()
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val cardWidth = (maxWidth - GridSpacing * (GridColumns - 1)) / GridColumns
+        // Every card shares one height: tall enough for the longest label.
+        // Per-row heights would move row boundaries whenever a drag swaps a
+        // long-named card between rows, which can flip the swap straight back.
+        val cardHeight = remember(signals, cardWidth, labelStyle, density) {
+            val labelWidthPx = with(density) {
+                (cardWidth - CardPaddingStart - CardIconSize - CardIconGap - CardPaddingEnd).roundToPx()
+            }.coerceAtLeast(1)
+            val tallestLabelPx = signals.maxOfOrNull {
+                textMeasurer.measure(
+                    it.label,
+                    style = labelStyle,
+                    maxLines = CardLabelMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                    constraints = Constraints(maxWidth = labelWidthPx),
+                ).size.height
+            } ?: 0
+            maxOf(CardHeight, with(density) { tallestLabelPx.toDp() } + CardPaddingVertical * 2)
+        }
+        val gridHeight = cardHeight * rows + GridSpacing * (rows - 1).coerceAtLeast(0)
         val cellWidthPx = with(density) { (cardWidth + GridSpacing).toPx() }
-        val cellHeightPx = with(density) { (CardHeight + GridSpacing).toPx() }
+        val cellHeightPx = with(density) { (cardHeight + GridSpacing).toPx() }
         val edgeZonePx = with(density) { 72.dp.toPx() }
         val maxAutoScrollPx = with(density) { 16.dp.toPx() }
         // The pointerInput / LaunchedEffect lambdas below live for the grid's
@@ -493,6 +527,7 @@ private fun ReorderableKeyGrid(
                         tapEnabled = replayEnabled && !editMode,
                         modifier = Modifier
                             .width(cardWidth)
+                            .height(cardHeight)
                             .zIndex(if (isDragged) 1f else 0f)
                             // The dragged card tracks the finger 1:1 (its own slot
                             // target plus the raw drag delta, no animation lag);
@@ -518,6 +553,11 @@ private fun ReorderableKeyGrid(
     }
 }
 
+// The grid measures labels with this same style to size the cards.
+@Composable
+private fun keyLabelStyle(): TextStyle =
+    MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, lineHeight = 22.sp)
+
 /**
  * A plain, flat list-style card — icon and name in one row, native ripple on
  * tap. Tapping anywhere on the card replays it; there's no separate button.
@@ -539,7 +579,6 @@ private fun KeyCard(
 
     Box(
         modifier = modifier
-            .height(CardHeight)
             .clip(SignalCardShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(enabled = tapEnabled, onClick = onReplay),
@@ -548,24 +587,24 @@ private fun KeyCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(start = 14.dp, end = 36.dp)
+                .padding(start = CardPaddingStart, end = CardPaddingEnd)
                 .alpha(if (replayEnabled) 1f else 0.5f),
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(CardIconSize)
                     .clip(CircleShape)
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(CardIconGap))
             Text(
                 signal.label,
-                style = MaterialTheme.typography.titleLarge,
+                style = keyLabelStyle(),
                 color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
+                maxLines = CardLabelMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
         }
