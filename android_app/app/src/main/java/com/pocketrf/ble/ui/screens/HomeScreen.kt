@@ -1,5 +1,6 @@
 package com.pocketrf.ble.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -42,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +57,7 @@ import com.pocketrf.ble.ui.common.PressableFilledButton
 import com.pocketrf.ble.ui.common.PressableOutlinedButton
 import com.pocketrf.ble.ui.common.StatusIndicator
 import com.pocketrf.ble.ui.common.StatusSection
+import kotlinx.coroutines.launch
 
 private data class MenuEntry(val route: String, val label: String, val sublabel: String, val icon: ImageVector)
 
@@ -90,63 +93,80 @@ fun HomeScreen(
 ) {
     val connected = connState == ConnState.READY
     val pagerState = rememberPagerState(pageCount = { 2 })
+    val scope = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(20.dp))
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "PocketRF",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            StatusIndicator(connState)
-        }
+    // Back from the menu page returns to the Keys page instead of leaving the
+    // app; only on Keys does back fall through to the system (exit).
+    BackHandler(enabled = pagerState.currentPage != 0) {
+        scope.launch { pagerState.animateScrollToPage(0) }
+    }
 
-        Spacer(Modifier.height(20.dp))
-        PressableFilledButton(
-            label = if (connected) "Disconnect" else "Connect",
-            icon = if (connected) Icons.Outlined.BluetoothConnected else Icons.AutoMirrored.Outlined.BluetoothSearching,
-            onClick = onConnectToggle,
-        )
-        Spacer(Modifier.height(10.dp))
-        PressableOutlinedButton(
-            label = "Status",
-            icon = Icons.Outlined.Refresh,
-            enabled = connected,
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onRefreshStatus,
-        )
-
-        status?.let {
+    // The side padding goes on the header and *inside* each pager page, not
+    // around the pager itself: a padded pager clips both pages at the inset
+    // mid-swipe, and leaves no gap between them. Full-width, the pages slide
+    // off the real screen edge with 2x the padding between them.
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.padding(horizontal = HomeSidePadding)) {
             Spacer(Modifier.height(20.dp))
-            StatusSection(it, warningIcon = Icons.Outlined.WarningAmber, mtu = mtu)
-        }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "PocketRF",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                StatusIndicator(connState)
+            }
 
-        Spacer(Modifier.height(16.dp))
-        PageDots(pageCount = 2, currentPage = pagerState.currentPage)
-        Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(20.dp))
+            PressableFilledButton(
+                label = if (connected) "Disconnect" else "Connect",
+                icon = if (connected) Icons.Outlined.BluetoothConnected else Icons.AutoMirrored.Outlined.BluetoothSearching,
+                onClick = onConnectToggle,
+            )
+            Spacer(Modifier.height(10.dp))
+            PressableOutlinedButton(
+                label = "Status",
+                icon = Icons.Outlined.Refresh,
+                enabled = connected,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onRefreshStatus,
+            )
+
+            status?.let {
+                Spacer(Modifier.height(20.dp))
+                StatusSection(it, warningIcon = Icons.Outlined.WarningAmber, mtu = mtu)
+            }
+
+            Spacer(Modifier.height(16.dp))
+            PageDots(pageCount = 2, currentPage = pagerState.currentPage)
+            Spacer(Modifier.height(8.dp))
+        }
 
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.Top,
         ) { page ->
-            when (page) {
-                0 -> KeysScreen(
-                    pinnedSignals = pinnedSignals,
-                    replayEnabled = connected,
-                    onNavigateScan = { onNavigate(Routes.SCAN) },
-                    onNavigateFixedRx = { onNavigate(Routes.FIXED_RX) },
-                    onReplay = onReplayPinned,
-                    onUnpin = onUnpin,
-                    onReorder = onReorderPinned,
-                )
-                else -> MenuPage(onNavigate)
+            Box(modifier = Modifier.padding(horizontal = HomeSidePadding)) {
+                when (page) {
+                    0 -> KeysScreen(
+                        pinnedSignals = pinnedSignals,
+                        replayEnabled = connected,
+                        onNavigateScan = { onNavigate(Routes.SCAN) },
+                        onNavigateFixedRx = { onNavigate(Routes.FIXED_RX) },
+                        onReplay = onReplayPinned,
+                        onUnpin = onUnpin,
+                        onReorder = onReorderPinned,
+                    )
+                    else -> MenuPage(onNavigate)
+                }
             }
         }
     }
 }
+
+private val HomeSidePadding = 20.dp
 
 @Composable
 private fun PageDots(pageCount: Int, currentPage: Int) {
