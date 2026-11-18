@@ -1,10 +1,40 @@
 # PocketRF 📡⚡
 
-> ⚠️ **Notice:** This project is currently **under active development**. Features are being implemented incrementally.
+> ⚠️ **Status:** under active development. Features land incrementally and the BLE protocol may change between releases. Treat this as a preview, not a stable 1.0.
+
+> 🚨 **Legal:** PocketRF is a **Sub-GHz radio transmitter**, and radio transmission is regulated everywhere. The **RF Jammer** feature is **illegal to operate in the US, UK, EU, and most other jurisdictions**. Read **[LEGAL.md](LEGAL.md)** before you transmit. You are responsible for compliance in your jurisdiction.
 
 **PocketRF** is a compact, headless **Sub-GHz RF transceiver system** built on the **Seeed Studio XIAO ESP32C3** and **TI CC1101** transceiver, controlled entirely via **Bluetooth Low Energy 5.0 (BLE)**.
 
 Designed to eliminate screen and button dependencies, PocketRF turns any smartphone or terminal into a full-featured Sub-GHz command center. The repo has three parts: the ESP32C3 **firmware**, a native **Android companion app**, and a **Python CLI** for quick interactive testing from a laptop.
+
+**Quick links:** [Hardware & BOM](docs/hardware.md) · [3D case files](hardware/case/README.md) · [Getting started](docs/getting-started.md) · [Web flasher](#-web-flasher) · [BLE protocol](BLE_PROTOCOL.md) · [Legal & responsible use](LEGAL.md) · [License](LICENSE) · [Third-party components](THIRD_PARTY.md)
+
+![PocketRF — 3D render of the device](docs/images/pocketrf-hero.png)
+
+---
+
+## 📸 Screenshots
+
+> _App UI screenshots go in `docs/images/` — see [docs/images/README.md](docs/images/README.md). This is the highest-value remaining documentation task; a project with a GUI and no screenshot loses most visitors in seconds._
+
+| Keys | Scan / copy | Spectrum |
+| :---: | :---: | :---: |
+| _`docs/images/keys.png`_ | _`docs/images/scan.png`_ | _`docs/images/spectrum.png`_ |
+
+---
+
+## ⚡ Web Flasher
+
+Flash the firmware straight from a browser — no PlatformIO, no toolchain:
+
+**👉 https://miladhalabi.github.io/PocketRF/**
+
+Requires **desktop Chrome, Edge, or Opera** (Web Serial). Safari and Firefox are not supported. Your phone's browser cannot do USB flashing.
+
+The page prompts to erase the flash on first install. After flashing, the device advertises over BLE as `XIAO-RF-BLE`.
+
+The flasher is deployed automatically by CI on every `v*` release tag. You can also flash from the command line instead — see [docs/getting-started.md](docs/getting-started.md).
 
 ---
 
@@ -21,6 +51,16 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
 
 ---
 
+## 🧊 3D Case
+
+The case is designed in **FreeCAD** — both the plain enclosure and a MagSafe/phone-mounted variant. Source models, printable STLs, the dimensioned drawing, and reference renders are in [`hardware/case/`](hardware/case/README.md).
+
+![PocketRF case on a phone](docs/images/pocketrf-on-phone.jpg)
+
+*Case files: [hardware/case/README.md](hardware/case/README.md) — FreeCAD source, STLs, drawing, licence.*
+
+---
+
 ## 🚀 Key Features
 
 * **Headless Architecture:** Zero physical display or button dependencies; ultra-compact form factor.
@@ -33,7 +73,7 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
   * **KeeLoq Rolling Code Cipher:** 528-round NLF engine supporting Simple, Normal, Secure, Magic XOR, Pujol, and Erreka learning schemes, with manufacturer identification against ~30 real brands (Aprimatic, Centurion, NICE, FAAC, etc.) via an embedded, AES-encrypted keystore.
   * **Multi-Modulation Presets:** OOK/ASK, 2-FSK, MSK and GFSK presets, matching Flipper Zero's `.sub` preset names.
   * **Spectrum / Waterfall Sweeper:** Real-time RSSI channel scanning.
-  * **RF Jammer:** Full-power, intermittent, CC1101 PN9 hardware noise, and ±5MHz frequency-sweep modes, with a 30s hard safety cutoff.
+  * **RF Jammer:** Full-power, intermittent, CC1101 PN9 hardware noise, and ±5MHz frequency-sweep modes, with a 30s hard safety cutoff. ⚠️ **Illegal to operate in most jurisdictions — the cutoff is a safety limit, not a legal one. See [LEGAL.md](LEGAL.md).**
   * **Bruteforce Key Generator:** Enumerates the full keyspace of a fixed-code OOK protocol (CAME 12-bit, Princeton 24-bit, Nice FLO 12-bit, etc.).
   * **RAW Signal Replay:** Flipper-compatible `.sub` RAW file parser + RMT-precision replay, plus chunked RAW capture/replay over BLE for captures too long for one notification/write.
   * **Auto Scan + Copy:** Sweeps all 3 ISM bands for an active signal, locks on, and decodes automatically (KeeLoq identified by manufacturer when recognized).
@@ -49,7 +89,7 @@ Designed to eliminate screen and button dependencies, PocketRF turns any smartph
 
 📖 **Full command reference for app/client developers:** [BLE_PROTOCOL.md](BLE_PROTOCOL.md) — every binary and ASCII command, payload layouts, notification types, and worked examples.
 
-📱 **Mobile app feature mapping:** [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) — screen-by-screen feature breakdown, data model, and what's left to build.
+📱 **Mobile app feature mapping:** [docs/dev/MOBILE_APP_PLAN.md](docs/dev/MOBILE_APP_PLAN.md) — screen-by-screen feature breakdown, data model, and what's left to build.
 
 ---
 
@@ -103,6 +143,10 @@ PocketRF uses **PlatformIO**.
 
 ## 📋 License & Credits
 
-* **Core RF Engines:** Extracted and adapted from the [Bruce Firmware](https://github.com/pr3y/Bruce).
-* **CC1101 Driver:** Modified SmartRC CC1101 Driver Library.
-* **BLE Stack:** NimBLE-Arduino.
+PocketRF is released under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE). AGPL-3.0 is required rather than chosen: the core RF engines are adapted from Bruce, which is AGPL-3.0, so the combined work must carry the same license.
+
+* **Core RF Engines:** Extracted and adapted from [Bruce Firmware](https://github.com/pr3y/Bruce) — **AGPL-3.0**.
+* **CC1101 Driver:** Modified [SmartRC CC1101 Driver Library](https://github.com/bmorcelli/SmartRC-CC1101-Driver-Lib) — custom permissive license requiring attribution.
+* **BLE Stack:** [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) — Apache-2.0.
+
+Component-by-component provenance and redistribution obligations: [THIRD_PARTY.md](THIRD_PARTY.md). Contributions are accepted under AGPL-3.0 — see [CONTRIBUTING.md](CONTRIBUTING.md).

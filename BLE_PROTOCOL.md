@@ -480,5 +480,5 @@ await send("subghz txp CAME 433.92 12 A5")   # 12-bit CAME, key=0xA5
 
 See [`pocketrf_cli.py`](pocketrf_cli.py) for a full working reference client
 (scan/jam/bruteforce/RAW replay included) and
-[`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md) for how each feature was ported
+[`docs/dev/DEVELOPMENT_LOG.md`](docs/dev/DEVELOPMENT_LOG.md) for how each feature was ported
 from [Bruce](https://github.com/pr3y/Bruce)'s RF module.

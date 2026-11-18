@@ -4,7 +4,7 @@ Same feature set as [Bruce](https://github.com/pr3y/Bruce)'s RF module,
 structured the same way Bruce structures it for its own users — mirrored
 from Bruce's actual on-device RF menu
 (`src/core/menu_items/RFMenu.cpp`). Full wire details for each one are in
-[`BLE_PROTOCOL.md`](BLE_PROTOCOL.md).
+[`BLE_PROTOCOL.md`](../../BLE_PROTOCOL.md).
 
 Bruce's RF menu is a flat list opened from its main menu. PocketRF only
 ever does RF, so that list **is** the app — no outer menu needed.
