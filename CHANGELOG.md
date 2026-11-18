@@ -11,9 +11,9 @@ There is no stable release yet. Until `1.0.0`, minor versions may change the BLE
 ### Added
 
 - Repository documentation: `LEGAL.md`, `THIRD_PARTY.md`, `CONTRIBUTING.md`, `SECURITY.md`,
-  `docs/hardware.md`, `docs/getting-started.md`, and this changelog.
-- GitHub Actions workflow building the firmware and the Android app, with a draft release on `v*`
-  tags.
+  `docs/hardware.md`, `docs/getting-started.md`, `docs/releasing.md`, and this changelog.
+- GitHub Actions workflow building the firmware and the Android app, publishing a public release
+  with the APK, firmware binaries, and `SHA256SUMS.txt` on `v*` tags.
 - `LICENSE` — GNU Affero General Public License v3.0.
 
 ### Changed
@@ -23,8 +23,9 @@ There is no stable release yet. Until `1.0.0`, minor versions may change the BLE
 
 ### Notes
 
-- The release APK is signed with the debug key. Replace with a real signing key before any
-  distribution beyond direct installs.
+- Release APKs are signed with the PocketRF release key when the `ANDROID_KEYSTORE_*` secrets are
+  configured; otherwise CI falls back to the debug key, whose signature changes every run. See
+  [docs/releasing.md](docs/releasing.md).
 - The RF jammer remains included in the default build. See [LEGAL.md](LEGAL.md) before using it.
 
 ## [0.1.0] — 2026-11-18

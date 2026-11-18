@@ -102,6 +102,14 @@ A native Kotlin + Jetpack Compose (Material3) app in [`android_app/`](android_ap
 * **Library:** every captured or saved signal (decoded or RAW), searchable, with rename, pin-to-Keys, delete, and one-tap Replay — saving is explicit (name-and-save), never automatic.
 * **BLE client:** GATT connection with MTU negotiation, chunked transfer in both directions (long RAW captures in from the device, long RAW/TX payloads out to it), and ack-aware TX so starting a replay reliably pauses any active RX/scan session and resumes it afterward.
 
+### Download
+
+Prebuilt release APKs are attached to every tagged release:
+
+**👉 https://github.com/miladhalabi/PocketRF/releases/latest**
+
+Download `pocketrf-android-<version>.apk` on the phone and open it. Android will ask you to allow installs from that app (browser/file manager) the first time. Requires **Android 8.0 (API 26)** or newer. Releases are signed with a stable PocketRF key, so new versions install over old ones without uninstalling.
+
 ### Build & install
 
 ```bash
@@ -110,7 +118,7 @@ cd android_app
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Requires JDK 17 and the Android SDK (`compileSdk`/`targetSdk` 35, `minSdk` 26). On Android 12+, grant Bluetooth permissions on first connect.
+Requires JDK 17 and the Android SDK (`compileSdk`/`targetSdk` 35, `minSdk` 26). On Android 12+, grant Bluetooth permissions on first connect. See [docs/releasing.md](docs/releasing.md) for signed release builds.
 
 ---
 

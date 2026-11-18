@@ -1,8 +1,25 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing. CI unpacks the keystore from repository secrets and exports
+// these variables (see docs/releasing.md); for a local signed build, export the
+// same variables in your shell. Without them the release build falls back to the
+// debug key: it installs, but every machine/CI run signs differently, so it
+// cannot be upgraded in place over another build.
+val releaseKeystore: File? = System.getenv("ANDROID_KEYSTORE_PATH")
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::File)
+    ?.takeIf { it.isFile }
+val hasReleaseKeystore = releaseKeystore != null
+
+// CI derives these from the git tag (v0.1.0 -> 0.1.0) and the commit count.
+val appVersionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
+val appVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()?.takeIf { it > 0 } ?: 1
 
 android {
     namespace = "com.pocketrf.ble"
@@ -12,8 +29,19 @@ android {
         applicationId = "com.pocketrf.ble"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -24,9 +52,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Signed with the local debug key so release builds install for
-            // on-device testing; swap in a real signing config before sharing.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "PocketRF: ANDROID_KEYSTORE_PATH unset - release APK will be " +
+                        "signed with the debug key and is not suitable for distribution.",
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
